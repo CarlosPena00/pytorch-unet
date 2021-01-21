@@ -126,7 +126,7 @@ class MAP_post(object):
         self.cellclass=cellclass
         self.diviclass=diviclass
 
-    def __call__(self,output,morph=0,prob4='max'):
+    def __call__(self,output,morph=3,prob4='max'):
         output=prob42prob3(output,prob4)
 
         MAP=np.argmax(output, axis=2)

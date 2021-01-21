@@ -130,23 +130,20 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             # measure data loading time
             data_time.update(time.time() - end)
             # get data (image, label, weight)
-            inputs, targets, weights = sample['image'], sample['label'], sample['weight']
+            #inputs, targets, weights = sample['image'], sample['label'], sample['weight']
+            inputs, targets = sample['image'], sample['label']
             batch_size = inputs.shape[0]
 
             if self.cuda:
                 inputs  = inputs.cuda() 
                 targets = targets.cuda() 
-                weights = weights.cuda()
-                
-            #print(inputs.shape)
-            #breakpoint()
-            #print(inputs.shape, targets.shape)
+                #weights = weights.cuda()
                 
             # fit (forward)            
             outputs = self.net(inputs)            
 
             # measure accuracy and record loss
-            loss  = self.criterion(outputs, targets, weights)            
+            loss  = self.criterion(outputs, targets, None)            
             
             accs  = self.accuracy(outputs, targets)
             dices = self.dice(outputs, targets)
@@ -168,8 +165,6 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 batch_size,          
                 )
 
-            
-            
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
@@ -193,7 +188,9 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             for i, sample in enumerate(data_loader):
                 
                 # get data (image, label)
-                inputs, targets, weights = sample['image'], sample['label'], sample['weight'] 
+                #inputs, targets, weights = sample['image'], sample['label'], sample['weight'] 
+                inputs, targets = sample['image'], sample['label']
+                               
                 batch_size = inputs.shape[0]
 
                 #print(inputs.shape)
@@ -201,26 +198,32 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 if self.cuda:
                     inputs  = inputs.cuda()
                     targets = targets.cuda()
-                    weights = weights.cuda()
+                    #weights = weights.cuda()
                 #print(inputs.shape)
                                  
                 # fit (forward)
                 outputs = self.net(inputs)
-
                 # measure accuracy and record loss
-                loss  = self.criterion(outputs, targets, weights)   
+                
+                loss  = self.criterion(outputs, targets, None)   
                 accs  = self.accuracy(outputs, targets )
                 dices = self.dice( outputs, targets )   
                 
-                targets_np = targets[0][1].cpu().numpy().astype(int)
+                #targets_np = targets[0][1].cpu().numpy().astype(int)
                 if epoch == 0:
-                    pq = 0
+                    pq      = 0
                     n_cells = 1
                 else:
                     #pq, n_cells    = metrics.pq_metric(targets, outputs)
-                    all_metrics, n_cells, _ = metrics.get_metrics_fidel(targets_np,outputs)
+                    if False:#self.skip_background:
+                        out_shape = outputs.shape
+                        zeros   = torch.zeros((out_shape[0], 1, out_shape[2], out_shape[3])).cuda()
+                        outputs = torch.cat([zeros, outputs], 1)
+
+                    
+                    all_metrics, n_cells, _ = metrics.get_metrics(targets,outputs)
                     pq = all_metrics['pq']
-        
+                    
                 pq_sum += pq * n_cells
                 total_cells += n_cells
                   
@@ -233,7 +236,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 self.logger_val.update( 
                     {'loss': loss.item() },
                     {'accs': accs.item(), 
-                     'PQ': pq,
+                     'PQ': (pq_sum/total_cells) if total_cells > 0 else 0,
                      'dices': dices.item() },      
                     batch_size,          
                     )
@@ -246,12 +249,17 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                         bavg=True, 
                         bsummary=False,
                         )
+                
+
+                
 
         #save validation loss
-        if n_cells == 0:
+        if total_cells == 0:
             pq_weight = 0
         else:
-            pq_weight = pq_sum / n_cells 
+            pq_weight = pq_sum / total_cells
+
+        print(f"PQ: {pq_weight:0.4f}, {pq_sum:0.4f}, {total_cells}")
 
         self.vallosses = self.logger_val.info['loss']['loss'].avg
         acc = self.logger_val.info['metrics']['accs'].avg
@@ -281,7 +289,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 self.visheatmap.show('Heat map {}'.format(k), prob.cpu()[k].numpy() )
         
 
-        
+        print(f"End Val: wPQ{pq_weight}")
         return pq_weight
 
 
@@ -371,6 +379,13 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             self.criterion = nloss.BCELoss()
         elif loss == 'ce':
             self.criterion = nloss.SimpleCrossEntropyLossnn()
+        elif loss == 'jreg':
+            lambda_dict={'0':{'0':  '1', '1':'0.5', '2':'0.5', '3':'0.5'},
+                         '1':{'0':'0.5', '1':  '1', '2':'0.5', '3':'0.5'},
+                         '2':{'0':'0.5', '1':'0.5', '2':'1'  , '3':'0.5'},
+                         '3':{'0':'0.5', '1':'0.5', '2':'0.5', '3':  '1'},
+                        }
+            self.criterion = nloss.WCE_J_SIMPL(lambda_dict=lambda_dict)
         else:
             assert(False)
 

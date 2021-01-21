@@ -382,3 +382,157 @@ def flatten(x):
     x_flat = x.clone()
     x_flat = x_flat.view(x.shape[0], -1)
     return x_flat
+
+
+import torch
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+from itertools import filterfalse as ifilterfalse
+
+
+class WCE_J_SIMPL(nn.Module):
+
+    def __init__(self,lambda_dict=None, power=1,lambda_vect=None):
+        super(WCE_J_SIMPL, self).__init__()
+        self.power = power
+        self.lambda_mat=dict()
+        
+        if lambda_dict!=None and lambda_vect!=None:
+            print('Please provide only one lambda parameter')
+            raise
+        
+        if lambda_dict==None and lambda_vect==None:
+            self.lambda_mat=None
+        
+        if lambda_dict!=None:
+            c=len(list(lambda_dict.keys()))
+            self.lambda_mat=self.ones_dict(c,c)
+            for key1, row in lambda_dict.items():
+                if int(key1) not in list(self.lambda_mat.keys()):
+                    self.lambda_mat[int(key1)]=dict()
+                for key2, value in row.items():
+                    self.lambda_mat[int(key1)][int(key2)]= float(value)
+        
+        elif lambda_vect!=None:
+            llv=len(lambda_vect)
+            if np.round(np.sqrt(llv))**2 == llv:
+                c=np.round(np.sqrt(llv)).astype(int)
+                self.lambda_mat=self.ones_dict(c,c)
+                k=0
+                for i in range(c):
+                    for j in range(c):
+                        self.lambda_mat[i][j]=lambda_vect[k]
+                        k+=1
+            else:
+                c=-1
+                for i in range(1000):
+                    if ((2*llv)/(i+1))==i:
+                        c=i
+                        break
+                if c==-1:
+                    print('Please provide a valid lambda vector')
+                    raise
+                
+                self.lambda_mat=self.ones_dict(c,c)
+                k=0
+                for i in range(c):
+                    for j in range(i,c):
+                        self.lambda_mat[i][j]=lambda_vect[k]
+                        self.lambda_mat[j][i]=lambda_vect[k]
+                        k+=1
+
+        if self.lambda_mat!=None:
+            print('Using lambda matrix:')
+            for key1, row in self.lambda_mat.items():
+                for key2, value in row.items():
+                    print('{0:.4f}'.format(self.lambda_mat[int(key1)][int(key2)]),end=" ")
+                print('')
+        
+      
+    def ones_dict(self,d1,d2):
+        lambda_mat=dict()
+        for i in range(d1):
+            if i not in list(lambda_mat.keys()):
+                    lambda_mat[i]=dict()
+            for j in range(d2):
+                lambda_mat[i][j]=float(1)
+        return lambda_mat
+
+    def zf_dict(self,d1,d2):
+        lambda_mat=dict()
+        for i in range(d1):
+            if i not in list(lambda_mat.keys()):
+                    lambda_mat[i]=dict()
+            for j in range(d2):
+                lambda_mat[i][j]=float(0.5)
+        return lambda_mat
+    
+    def crop(self,w,h,target):
+        nt,ht,wt= target.size()
+        offset_w,offset_h=(wt-w) // 2 ,(ht-h) // 2
+        if offset_w>0 and offset_h>0:
+            target=target[:,offset_h:-offset_h,offset_w:-offset_w].clone()
+        
+        return target
+
+    def to_one_hot(self,target,size):
+        n, c, h, w = size
+        
+        ymask = torch.FloatTensor(size).zero_()
+        new_target=torch.LongTensor(n,1,h,w)
+        if target.is_cuda:
+            ymask=ymask.cuda(target.get_device())
+            new_target=new_target.cuda(target.get_device())
+
+        new_target[:,0,:,:]=torch.clamp(target.detach(),0,c-1)
+        ymask.scatter_(1, new_target , 1.0)
+        
+        return (ymask.requires_grad_())
+
+
+    def forward(self, input, target,weight=None):
+        target = target.argmax(1)
+        eps=0.00000001
+
+        n, c, h, w = input.size()
+        log_p = F.log_softmax(input,dim=1)
+        
+        if self.lambda_mat==None:
+            lamb=self.zf_dict(c,c)
+        else:
+            assert len(list(self.lambda_mat.keys()))==c, 'Lambda is expected to have dimension {}x{} but got {}x{} instead'.format(c,c,len(list(self.lambda_mat.keys())),len(list(self.lambda_mat.keys())))
+            lamb=self.lambda_mat
+
+        #target=self.crop(w,h,target)
+        ymask=self.to_one_hot(target,log_p.size())
+        ymask1=ymask.clone()
+
+        # mcc
+        p = F.softmax(input,dim=1)
+        lossd=0
+
+        for i in range(c):
+            for j in range(c):
+                if i==j:
+                    continue
+                iflat = p[:, i].contiguous().view(-1)
+                tflat = ymask[:, i].contiguous().view(-1)
+                tflat2 = ymask[:, j].contiguous().view(-1)
+                ni=tflat.sum()
+                nj=tflat2.sum()
+                if ni.item()>0 and nj.item()>0:
+                    mcc = (iflat*tflat/ni -iflat*tflat2/nj)
+                    lossd+= torch.log( (0.5*(mcc.sum())+0.5)**self.power  + eps ) * (-lamb[i][j])
+
+        # weighted cross entropy
+        if weight is not None:
+            #weight=self.crop(w,h,weight)
+            for classes in range(c):
+                ymask1[:,classes,:,:]=  ymask1[:,classes,:,:].clone() * lamb[classes][classes] * (weight)
+
+        logpy = (log_p * ymask1).sum(1)
+        loss = -(logpy).mean()
+
+
+        return loss + lossd

@@ -160,24 +160,43 @@ def pq_metric_(y_true, y_pred):
     #breakpoint()
     return pq_val, n_cells
 
+
 map_post  = post_processing_func.MAP_post()
 th_post   = post_processing_func.TH_post()
 wts_post  = post_processing_func.WTS_post()
 pq_metric = PQ()
 
-def get_metrics_fidel(gt, outputs, post_label='map'):
+def get_metrics(gt, outputs, post_label='map', remove_small=True):
     #gt = gt[0].cpu().numpy()
-    out_np = outputs[0].cpu().numpy().transpose(1,2,0)
-    
-    if post_label == 'map':
-        predictionlb, MAP, region, output = map_post(out_np)
-    elif post_label == 'th':
-        predictionlb, MAP, region, output = th_post(out_np, theshold=0.5)
-    elif post_label == 'wts':
-        predictionlb, MAP, region, output = wts_post(out_np)
+        
+    if type(outputs) == np.ndarray:
+        out_np = outputs 
     else:
-        assert False, f"Get Metrics Fidel Error {post_label} -- expected map || th || tws"
-    gt_, n_cells        = ndi.label(gt)
+        if outputs.shape[0] != 1:
+            print("Warring! this function just accept batch size of one")
+        out_np = outputs[0].cpu().detach().numpy().transpose(1,2,0)
+        
+    if type(gt) == np.ndarray:
+        gt_, *_ = map_post(gt, 3)
+    else:
+        if gt.shape[0] != 1:
+            print("Warring! this function just accept batch size of one")        
+        gt      = gt[0].cpu().detach().numpy().astype(int)  
+        gt_, *_ = map_post(gt.transpose(1,2,0), 3)
+    
+
+    if post_label == 'map' or post_label == 'all':
+        #Note: Default behavior, this just shoud allow in training mode for speed purpose 
+        predictionlb, prediction, region, output = map_post(out_np, 3)
+    elif post_label == 'th':
+        predictionlb, prediction, region, output = th_post(out_np, thresh=0.5)
+    elif post_label == 'wts':
+        predictionlb, prediction, region, output = wts_post(out_np)
+    else:
+        assert False, f"Get Metrics Fidel Error {post_label} -- expected map || th || wts -- Got: |{post_label}|"
+
+    n_cells = gt_.max()
+    
     try:
         results = pq_metric(predictionlb, gt_)
     except:
@@ -185,4 +204,4 @@ def get_metrics_fidel(gt, outputs, post_label='map'):
         results =  {'precision':0.0,'recall':0.0,'fmeasure':0.0,'sq':0.0,'rq':0.0,'pq':0.0}
 
     results['n_cells'] = predictionlb.max()
-    return results, n_cells, (predictionlb, MAP, region, output)
+    return results, n_cells, (predictionlb, prediction, region, output)

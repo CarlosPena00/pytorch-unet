@@ -34,6 +34,14 @@ normalize = mtrans.ToMeanNormalization(
     std  = (0.229, 0.224, 0.225), 
     )
 
+# Generic gray
+#normalize = mtrans.ToMeanNormalization(
+#    mean = (0.5),  
+#    std  = (0.5), 
+#    )
+
+
+
 
 # normalize = mtrans.ToNormalization()
 
@@ -80,10 +88,11 @@ def get_transforms_geom_color():
         
         #------------------------------------------------------------------
         #Resize
-        #             
+        #    
+        #mtrans.CenterCrop((1008, 1008)),
         #mtrans.RandomCrop( (size_crop, size_crop), limit=10, padding_mode=cv2.BORDER_REFLECT_101  ),        
         #mtrans.ToResize( (size_input, size_input), resize_mode='square', padding_mode=cv2.BORDER_REFLECT_101 ),
-        #mtrans.ToPad( 5 , 5, padding_mode=cv2.BORDER_REFLECT_101 ),
+        mtrans.ToPad( 7, 7, padding_mode=cv2.BORDER_CONSTANT ),
                        
         #------------------------------------------------------------------
         #Geometric 
@@ -104,7 +113,7 @@ def get_transforms_geom_color():
         mtrans.ToRandomTransform( mtrans.RandomGamma( factor=0.25 ), prob=0.50 ),
         #mtrans.ToRandomTransform( mtrans.RandomRGBPermutation(), prob=0.50 ),
         #mtrans.ToRandomTransform( mtrans.CLAHE(), prob=0.25 ),
-        #mtrans.ToRandomTransform(mtrans.ToGaussianBlur( sigma=0.05 ), prob=0.25 ),
+        mtrans.ToRandomTransform(mtrans.ToGaussianBlur( sigma=0.05 ), prob=0.1 ),
         
         #------------------------------------------------------------------
         mtrans.ToTensor(),
@@ -135,6 +144,8 @@ def get_transforms_test(size_input=256):
 
 def get_simple_transforms():
     return transforms.Compose([
+        #mtrans.CenterCrop( (1008, 1008) ),
+        mtrans.ToPad( 7, 7, padding_mode=cv2.BORDER_CONSTANT ),
         mtrans.ToTensor(),
         normalize,      
     ])

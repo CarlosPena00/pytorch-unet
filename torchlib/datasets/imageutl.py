@@ -572,3 +572,75 @@ class TCellsProvide(dataProvide):
             return image, label, weight
 
         return image, label
+    
+
+class ISBIProvide(dataProvide):
+
+    def __init__(self,
+        base_folder,    
+        sub_folder,     
+        folders_images='images',
+        folders_labels='labels',
+        folders_weights='weights',
+        ext='tif',
+        use_weight=False,
+        weight_name='SAW'
+        ):
+        super(ISBIProvide, self).__init__( );        
+        base_folder = os.path.expanduser( base_folder )
+        self.use_weight  = use_weight
+        
+        self.path = base_folder
+        self.subpath = sub_folder
+        self.folders_images = folders_images
+        self.folders_labels = folders_labels
+        
+        self.pathimages   = os.path.join( base_folder, sub_folder, folders_images   )
+        self.pathlabels   = os.path.join( base_folder, sub_folder, folders_labels   )
+                
+        if self.use_weight:
+            self.pathweight = os.path.join( base_folder, sub_folder, folders_weights, weight_name)
+            self.data = [             
+                (
+                    f, 
+                    os.path.join(self.pathimages,   '{}'.format(f) ),
+                    os.path.join(self.pathlabels,   '{}'.format(f) ),
+                    os.path.join(self.pathweight,   '{}'.format(f.replace(ext, "npz")) )                    
+                )
+                for f in sorted(os.listdir(self.pathlabels)) if f.split('.')[-1] == ext             
+                ];
+
+            
+        else:
+            self.data = [             
+                (
+                    f, 
+                    os.path.join(self.pathimages,   '{}'.format(f) ),
+                    os.path.join(self.pathlabels,   '{}'.format(f) ),
+                )
+                for f in sorted(os.listdir(self.pathlabels)) if f.split('.')[-1] == ext             
+                ];
+
+    def getid(self): return self.data[self.index][0]
+
+
+    def __getitem__(self, i):
+                
+        #check index
+        if i<0 and i>len(self.data): raise ValueError('Index outside range');
+        self.index = i;                 
+        
+        #load image
+        image_pathname = self.data[i][1]; 
+        image = cv2.imread(image_pathname, -1)
+        
+        #load label
+        label_pathname = self.data[i][2]; 
+        label = cv2.imread(label_pathname, -1)
+        
+        if self.use_weight:
+            weight_pathname = self.data[i][3]
+            weight          = np.load(weight_pathname)['arr_0']
+            return image, label, weight
+
+        return image, label
