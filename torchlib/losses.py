@@ -1,8 +1,11 @@
+
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from itertools import filterfalse as ifilterfalse
+import kornia
 
 class WeightedMCEloss(nn.Module):
 
@@ -64,6 +67,7 @@ class SimpleCrossEntropyLossnn(nn.Module):
 
 
 class WeightedMCEFocalloss(nn.Module):
+    # Fail
     
     def __init__(self, gamma=2.0 ):
         super(WeightedMCEFocalloss, self).__init__()
@@ -108,38 +112,7 @@ class WeightedMCEFocalloss(nn.Module):
         
         return loss
 
-class WeightedBCELoss(nn.Module):
-    
-    def __init__(self ):
-        super(WeightedBCELoss, self).__init__()
 
-    def forward(self, y_pred, y_true, weight ):
-        
-        n, ch, h, w = y_pred.size()
-        y_true = centercrop(y_true, w, h)
-        weight = centercrop(weight, w, h )
-     
-        logit_y_pred = torch.log(y_pred / (1. - y_pred))
-        loss = weight * (logit_y_pred * (1. - y_true) + 
-                        torch.log(1. + torch.exp(-torch.abs(logit_y_pred))) + torch.clamp(-logit_y_pred, min=0.))
-        loss = torch.sum(loss) / torch.sum(weight)
-
-        return loss
-
-class BCELoss(nn.Module):
-    
-    def __init__(self):
-        super(BCELoss, self).__init__()
-        self.bce = nn.BCEWithLogitsLoss()
-
-    def forward(self, y_pred, y_true, weights ):        
-        n, ch, h, w = y_pred.size()
-        y_true = centercrop(y_true, w, h)
-        loss_0 = self.bce(y_pred[:, 0], y_true[:, 0])
-        loss_1 = self.bce(y_pred[:, 1], y_true[:, 1])
-        loss_2 = self.bce(y_pred[:, 2], y_true[:, 2])
-        loss = loss_0 * 0.2 + loss_1 * 0.5 + loss_2 * 0.3
-        return loss
 
 class WBCELoss(nn.Module):
     
@@ -288,6 +261,8 @@ class MCEDiceLoss(nn.Module):
         self.loss_mce = BCELoss()
         self.loss_dice_fg = BLogDiceLoss( classe=1  )
         self.loss_dice_th = BLogDiceLoss( classe=2  )
+        self.loss_dice_gp = BLogDiceLoss( classe=3  )
+        
         
         self.alpha = alpha
         self.gamma = gamma
@@ -301,64 +276,15 @@ class MCEDiceLoss(nn.Module):
         # bce(all_channels) +  dice_loss(mask_channel) + dice_loss(border_channel)  
         loss_all  = self.loss_mce( y_pred[:,:2,...], y_true[:,:2,...]).clamp(0,10) 
         loss_fg   = self.loss_dice_fg( y_pred, y_true ).clamp(0,0.1) 
-        loss_th   = self.loss_dice_th( y_pred, y_true ).clamp(0,0.1)   
-        loss      = loss_all + alpha*loss_fg + gamma*loss_th   
-        print(f"Loss: {loss_all} ; loss_fg: {loss_fg} ; loss_th: {loss_th}")
+        loss_th   = self.loss_dice_th( y_pred, y_true ).clamp(0,0.1) 
+        loss_gp   = self.loss_dice_gp( y_pred, y_true ).clamp(0,0.1) 
+        
+        loss      = loss_all + alpha*loss_fg + gamma*loss_th + loss_gp*gamma
+        #print(f"Loss: {loss_all} ; loss_fg: {loss_fg} ; loss_th: {loss_th}")
         return loss
 
 
-class Accuracy(nn.Module):
-    
-    def __init__(self, bback_ignore=True):
-        super(Accuracy, self).__init__()
-        self.bback_ignore = bback_ignore 
 
-    def forward(self, y_pred, y_true ):
-        
-        n, ch, h, w = y_pred.size()        
-        y_true = centercrop(y_true, w, h)
-
-        prob = F.softmax(y_pred, dim=1).data
-        prediction = torch.argmax(prob,1)
-
-        accs = []
-        for c in range( int(self.bback_ignore), ch ):
-            yt_c = y_true[:,c,...]
-            num = (((prediction.eq(c) + yt_c.data.eq(1)).eq(2)).float().sum() + 1 )
-            den = (yt_c.data.eq(1).float().sum() + 1)
-            acc = (num/den)*100
-            accs.append(acc)
-        
-        accs = torch.stack(accs)
-        return accs.mean()
-
-
-class Dice(nn.Module):
-    
-    def __init__(self, bback_ignore=True):
-        super(Dice, self).__init__()
-        self.bback_ignore = bback_ignore       
-
-    def forward(self, y_pred, y_true ):
-        
-        eps = 1e-15
-        n, ch, h, w = y_pred.size()
-        y_true = centercrop(y_true, w, h)
-
-        prob = F.softmax(y_pred, dim=1)
-        prob = prob.data
-        prediction = torch.argmax(prob, dim=1)
-
-        y_pred_f = flatten(prediction).float()
-        dices = []
-        for c in range(int(self.bback_ignore), ch ):
-            y_true_f = flatten(y_true[:,c,...]).float()
-            intersection = y_true_f * y_pred_f
-            dice = (2. * torch.sum(intersection) / ( torch.sum(y_true_f) + torch.sum(y_pred_f) + eps ))*100
-            dices.append(dice)
-        
-        dices = torch.stack(dices)
-        return dices.mean()
 
 
 def to_one_hot(mask, size):    
@@ -384,11 +310,9 @@ def flatten(x):
     return x_flat
 
 
-import torch
-import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
-from itertools import filterfalse as ifilterfalse
+#####################################################################
+############################## Checked ##############################
+#####################################################################
 
 
 class WCE_J_SIMPL(nn.Module):
@@ -536,3 +460,135 @@ class WCE_J_SIMPL(nn.Module):
 
 
         return loss + lossd
+    
+class Accuracy(nn.Module):
+    # Check
+    def __init__(self):
+        super(Accuracy, self).__init__()
+    
+    def forward(self, input, target):
+        input_a = input.argmax(1)
+        target_a = target.argmax(1)
+        return (input_a == target_a).float().mean()
+    
+class FocalLoss(nn.Module):
+    def __init__(self):
+        super(FocalLoss, self).__init__()    
+        self.focal_loss = kornia.losses.FocalLoss(0.5, reduction='mean')
+    
+    def forward(self, y_pred, y_true, weights=None):
+        return self.focal_loss(y_pred, y_true.argmax(1))
+
+class WeightedFocalLoss(nn.Module):
+    def __init__(self):
+        super(WeightedFocalLoss, self).__init__()    
+        self.focal_loss = kornia.losses.FocalLoss(0.5, reduction='none')
+    
+    def forward(self, y_pred, y_true, weights=None):
+        return (self.focal_loss(y_pred, y_true.argmax(1)) * weights).mean()
+
+class FocalDiceLoss(nn.Module):
+    def __init__(self):
+        super(FocalDiceLoss, self).__init__()    
+        self.focal_loss = kornia.losses.FocalLoss(0.5, reduction='mean')
+        self.dice_loss  = DiceLoss()
+    
+    def forward(self, y_pred, y_true, weights=None):
+        floss = self.focal_loss(y_pred, y_true.argmax(1))
+        dloss = self.dice_loss(y_pred, y_true)
+        return ((floss + dloss)*100).clamp(0,20)
+
+class WeightedFocalDiceLoss(nn.Module):
+    def __init__(self):
+        super(WeightedFocalDiceLoss, self).__init__()    
+        self.focal_loss = kornia.losses.FocalLoss(0.5, reduction='none')
+        self.dice_loss  = DiceLoss()
+    
+    def forward(self, y_pred, y_true, weights=None):
+        
+        floss = self.focal_loss(y_pred, y_true.argmax(1)) * weights
+        floss = floss.mean()
+        dloss = self.dice_loss(y_pred, y_true)
+        return ((floss + dloss)*10).clamp(0,20)
+    
+class WeightedCEFocalLoss(nn.Module):
+    def __init__(self):
+        super(WeightedCEFocalLoss, self).__init__()    
+        self.focal_loss = kornia.losses.FocalLoss(0.5, reduction='none')
+        self.bce = nn.CrossEntropyLoss(reduction='none')
+     
+    def forward(self, y_pred, y_true, weights=None):
+        y_true_a = y_true.argmax(1)
+        loss = (self.bce(y_pred, y_true_a) * self.focal_loss(y_pred, y_true_a) * weights)
+        return loss.mean().clamp(0, 100)
+    
+class WeightedCrossEntropyLoss(nn.Module):
+
+    def __init__(self):
+        super(WeightedCrossEntropyLoss, self).__init__()
+        self.bce = nn.CrossEntropyLoss(reduction='none')
+        
+    def forward(self, y_pred, y_true, weight):
+        y_true_hot = y_true.argmax(1)
+        loss = self.bce(y_pred, y_true_hot.long()) * weight
+        return (loss.mean()*10).clamp(0, 20)
+        
+
+class BCELoss(nn.Module):
+
+    def __init__(self):
+        super(BCELoss, self).__init__()
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def forward(self, y_pred, y_true, weights=None):        
+        
+        loss_0 = self.bce(y_pred[:, 0], y_true[:, 0])
+        loss_1 = self.bce(y_pred[:, 1], y_true[:, 1])
+        loss_2 = self.bce(y_pred[:, 2], y_true[:, 2])
+        loss_3 = self.bce(y_pred[:, 3], y_true[:, 3])
+        
+        loss = loss_0 * 0.2 + loss_1 * 0.5 + loss_2 * 0.3 + loss_3 * 0.3
+        return loss
+    
+class DiceLoss(nn.Module):
+    # Adapted from: 
+    ## https://kornia.readthedocs.io/en/v0.1.2/_modules/torchgeometry/losses/dice.html
+    ## max value: 1.00 
+    def __init__(self, dims=(1, 2, 3)) -> None:
+        super(DiceLoss, self).__init__()
+        self.eps: float = 1e-6
+        self.dims = dims
+
+    def forward( self, input: torch.Tensor, target: torch.Tensor, weights=None) -> torch.Tensor:
+        
+        if not torch.is_tensor(input):
+            raise TypeError("Input type is not a torch.Tensor. Got {}"
+                            .format(type(input)))
+        if not len(input.shape) == 4:
+            raise ValueError("Invalid input shape, we expect BxNxHxW. Got: {}"
+                             .format(input.shape))
+        if not input.shape[-2:] == target.shape[-2:]:
+            raise ValueError("input and target shapes must be the same. Got: {}"
+                             .format(input.shape, input.shape))
+        if not input.device == target.device:
+            raise ValueError(
+                "input and target must be in the same device. Got: {}" .format(
+                    input.device, target.device))
+        smooth = 1
+        # compute softmax over the classes axis
+        input_soft = F.softmax(input, dim=1)
+
+        # compute the actual dice score
+        intersection = torch.sum(input_soft * target, self.dims)
+        cardinality  = torch.sum((input_soft + target), self.dims)
+
+        dice_score = (2. * intersection + smooth)/ (cardinality + smooth +self.eps)
+        return torch.mean(1. - dice_score)
+    
+class Dice(nn.Module):
+    def __init__(self, dims=(1, 2, 3)) -> None:
+        super(Dice, self).__init__()
+        self.dice_loss = DiceLoss()
+    
+    def forward( self, input: torch.Tensor, target: torch.Tensor, weights=None) -> torch.Tensor:
+        return +1 - self.dice_loss(input, target)

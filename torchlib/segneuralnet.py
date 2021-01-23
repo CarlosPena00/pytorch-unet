@@ -130,20 +130,24 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             # measure data loading time
             data_time.update(time.time() - end)
             # get data (image, label, weight)
-            #inputs, targets, weights = sample['image'], sample['label'], sample['weight']
             inputs, targets = sample['image'], sample['label']
+            weights = None
+            if 'weight' in sample.keys():
+                weights = sample['weight']
+                
             batch_size = inputs.shape[0]
 
             if self.cuda:
                 inputs  = inputs.cuda() 
                 targets = targets.cuda() 
-                #weights = weights.cuda()
+                if type(weights) is not type(None):
+                    weights = weights.cuda()
                 
             # fit (forward)            
             outputs = self.net(inputs)            
 
             # measure accuracy and record loss
-            loss  = self.criterion(outputs, targets, None)            
+            loss  = self.criterion(outputs, targets, weights)            
             
             accs  = self.accuracy(outputs, targets)
             dices = self.dice(outputs, targets)
@@ -188,8 +192,11 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             for i, sample in enumerate(data_loader):
                 
                 # get data (image, label)
-                #inputs, targets, weights = sample['image'], sample['label'], sample['weight'] 
                 inputs, targets = sample['image'], sample['label']
+                weights = None
+                if 'weight' in sample.keys():
+                    weights = sample['weight']
+                #inputs, targets = sample['image'], sample['label']
                                
                 batch_size = inputs.shape[0]
 
@@ -198,14 +205,15 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 if self.cuda:
                     inputs  = inputs.cuda()
                     targets = targets.cuda()
-                    #weights = weights.cuda()
+                    if type(weights) is not type(None):
+                        weights = weights.cuda()
                 #print(inputs.shape)
                                  
                 # fit (forward)
                 outputs = self.net(inputs)
                 # measure accuracy and record loss
                 
-                loss  = self.criterion(outputs, targets, None)   
+                loss  = self.criterion(outputs, targets, weights)   
                 accs  = self.accuracy(outputs, targets )
                 dices = self.dice( outputs, targets )   
                 
@@ -363,22 +371,26 @@ class SegmentationNeuralNet(NeuralNetAbstract):
     def _create_loss(self, loss):
 
         # create loss
-        if loss == 'wmce':
+        if loss == 'wmce': # Not tested
             self.criterion = nloss.WeightedMCEloss()
-        elif loss == 'bdice':
+        elif loss == 'bdice': # Fail
             self.criterion = nloss.BDiceLoss()
-        elif loss == 'wbdice':
+        elif loss == 'wbdice': # Fail
             self.criterion = nloss.WeightedBDiceLoss()
-        elif loss == 'wmcedice':
+        elif loss == 'wmcedice': # Fail
             self.criterion = nloss.WeightedMCEDiceLoss()
-        elif loss == 'wfocalmce':
-            self.criterion = nloss.WeightedMCEFocalloss()
-        elif loss == 'mcedice':
+        elif loss == 'mcedice': # Fail
             self.criterion = nloss.MCEDiceLoss()  
-        elif loss == 'bce':
+        elif loss == 'bce': # Pass
             self.criterion = nloss.BCELoss()
-        elif loss == 'ce':
-            self.criterion = nloss.SimpleCrossEntropyLossnn()
+        elif loss == 'wce': # Pass
+            self.criterion = nloss.WeightedCrossEntropyLoss()
+        elif loss == 'wfocalce': # Pass
+            self.criterion = nloss.WeightedCEFocalLoss()
+        elif loss == 'focaldice': # Pass
+            self.criterion = nloss.FocalDiceLoss()
+        elif loss == 'wfocaldice': # Pass
+            self.criterion = nloss.WeightedFocalDiceLoss()
         elif loss == 'jreg':
             lambda_dict={'0':{'0':  '1', '1':'0.5', '2':'0.5', '3':'0.5'},
                          '1':{'0':'0.5', '1':  '1', '2':'0.5', '3':'0.5'},

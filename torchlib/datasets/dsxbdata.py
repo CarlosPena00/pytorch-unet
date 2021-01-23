@@ -427,7 +427,9 @@ class ISBIDataset(Dataset):
         if self.transform: 
             obj = self.transform( obj )
             
-        return obj.to_dict()
+        obj = obj.to_dict()
+        
+        return obj
     
     
 # TO MODIFY
