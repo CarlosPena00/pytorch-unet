@@ -383,6 +383,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             self.criterion = nloss.MCEDiceLoss()  
         elif loss == 'bce': # Pass
             self.criterion = nloss.BCELoss()
+        elif loss == 'wbce':
+            self.criterion = nloss.WeightedBCELoss()
         elif loss == 'wce': # Pass
             self.criterion = nloss.WeightedCrossEntropyLoss()
         elif loss == 'wfocalce': # Pass
