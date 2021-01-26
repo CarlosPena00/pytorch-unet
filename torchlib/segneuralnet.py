@@ -41,7 +41,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         seed=1,
         print_freq=10,
         gpu=0,
-        view_freq=1
+        view_freq=1,
+        half_precision=True
         ):
         """
         Initialization
@@ -57,6 +58,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
 
         super(SegmentationNeuralNet, self).__init__( patchproject, nameproject, no_cuda, parallel, seed, print_freq, gpu  )
         self.view_freq = view_freq
+        self.half_precision = half_precision
 
  
     def create(self, 
@@ -112,6 +114,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
 
         self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(100,100) )
         self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(100,100) )
+        if self.half_precision:
+            self.scaler = torch.cuda.amp.GradScaler()
 
       
     def training(self, data_loader, epoch=0):        
@@ -143,23 +147,28 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 if type(weights) is not type(None):
                     weights = weights.cuda()
                 
-            # fit (forward)            
-            outputs = self.net(inputs)            
+            # fit (forward)
+            if self.half_precision:
+                with torch.cuda.amp.autocast():
+                    outputs = self.net(inputs)            
+                    loss    = self.criterion(outputs, targets, weights)
+                    self.optimizer.zero_grad()            
+                    self.scaler.scale(loss*batch_size).backward()  
+                    self.scaler.step(self.optimizer) 
+                    self.scaler.update()
 
-            # measure accuracy and record loss
-            loss  = self.criterion(outputs, targets, weights)            
+            else:
+                outputs = self.net(inputs)            
+                loss    = self.criterion(outputs, targets, weights)            
+                self.optimizer.zero_grad()
+                (batch_size*loss).backward() #batch_size
+                self.optimizer.step()
             
             accs  = self.accuracy(outputs, targets)
             dices = self.dice(outputs, targets)
             #pq    = metrics.pq_metric(outputs.cpu().detach().numpy(), targets.cpu().detach().numpy())
             #pq, n_cells  = metrics.pq_metric(targets, outputs)
-                
-            # optimizer
-            self.optimizer.zero_grad()
-            
-            (batch_size*loss).backward() #batch_size
-            self.optimizer.step()
-            
+
             # update
             self.logger_train.update(
                 {'loss': loss.item() },
@@ -210,7 +219,11 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 #print(inputs.shape)
                                  
                 # fit (forward)
-                outputs = self.net(inputs)
+                if self.half_precision:
+                    with torch.cuda.amp.autocast():
+                        outputs = self.net(inputs)
+                else:
+                    outputs = self.net(inputs)
                 # measure accuracy and record loss
                 
                 loss  = self.criterion(outputs, targets, weights)   
@@ -285,7 +298,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         #vizual_freq
         if epoch % self.view_freq == 0:
             
-            prob = F.softmax(outputs.cpu(), dim=1)
+            prob = F.softmax(outputs.cpu().float(), dim=1)
             prob = prob.data[0]
             maxprob = torch.argmax(prob, 0)
             
