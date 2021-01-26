@@ -114,6 +114,8 @@ def arg_parser():
                         help='Post processing method, | map | th | wts')
     parser.add_argument('--weight', default='', type=str,
                         help='weight, | SAW | DWM | ')
+    parser.add_argument('--pad', default=0, type=int,
+                        help='pad px')
     return parser
 
 
@@ -132,6 +134,7 @@ def main():
     count_test   = args.count_test #5000
     post_method  = args.post_method
     weight       = args.weight
+    pad          = args.pad
     use_weights  = weight!=''
 
     
@@ -181,9 +184,11 @@ def main():
     train_data = dsxbdata.ISBIDataset(
         args.data, 
         'train', 
+        folders_labels=f'labels{num_classes}c',
         count=count_train,
+        num_classes=num_classes,
         num_channels=num_channels,
-        transform=get_transforms_geom_color(),
+        transform=get_transforms_geom_color(pad=pad),
         use_weight=use_weights,
         weight_name=weight
     )
@@ -194,9 +199,11 @@ def main():
     val_data = dsxbdata.ISBIDataset(
         args.data, 
         "val", 
+        folders_labels=f'labels{num_classes}c',
         count=None,
+        num_classes=num_classes,
         num_channels=num_channels,
-        transform=get_simple_transforms(),
+        transform=get_simple_transforms(pad=pad),
         use_weight=use_weights,
         weight_name=weight
     )

@@ -104,9 +104,15 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             cfg_scheduler=cfg_scheduler
         )
         self.size_input = size_input
+        self.num_output_channels = num_output_channels
         
         self.accuracy = nloss.Accuracy()
-        self.dice = nloss.Dice()
+        if num_output_channels == 2:
+            dice_dim = (1,)
+        if num_output_channels == 4:
+            dice_dim = (1,2,3)
+        
+        self.dice = nloss.Dice(dice_dim)
        
         # Set the graphic visualization
         self.logger_train = Logger( 'Train', ['loss'], ['accs', 'dices'], self.plotter  )
@@ -222,8 +228,10 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 if self.half_precision:
                     with torch.cuda.amp.autocast():
                         outputs = self.net(inputs)
+                        
                 else:
                     outputs = self.net(inputs)
+
                 # measure accuracy and record loss
                 
                 loss  = self.criterion(outputs, targets, weights)   
@@ -417,11 +425,15 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         elif loss == 'wcefd':
             self.criterion = nloss.WeightedCEFocalDice()
         elif loss == 'jreg':
-            lambda_dict={'0':{'0':  '1', '1':'0.5', '2':'0.5', '3':'0.5'},
-                         '1':{'0':'0.5', '1':  '1', '2':'0.5', '3':'0.5'},
-                         '2':{'0':'0.5', '1':'0.5', '2':'1'  , '3':'0.5'},
-                         '3':{'0':'0.5', '1':'0.5', '2':'0.5', '3':  '1'},
-                        }
+            if self.num_output_channels == 2:
+                lambda_dict={'0':{'0':  '1', '1':'0.5'},
+                             '1':{'0':'0.5', '1':  '1'}}
+            if self.num_output_channels == 4:
+                lambda_dict={'0':{'0':  '1', '1':'0.5', '2':'0.5', '3':'0.5'},
+                             '1':{'0':'0.5', '1':  '1', '2':'0.5', '3':'0.5'},
+                             '2':{'0':'0.5', '1':'0.5', '2':'1'  , '3':'0.5'},
+                             '3':{'0':'0.5', '1':'0.5', '2':'0.5', '3':  '1'}}
+            
             self.criterion = nloss.WCE_J_SIMPL(lambda_dict=lambda_dict)
         else:
             assert(False)

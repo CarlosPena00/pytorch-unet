@@ -168,23 +168,29 @@ pq_metric = PQ()
 
 def get_metrics(gt, outputs, post_label='map', remove_small=True):
     #gt = gt[0].cpu().numpy()
-        
+    
     if type(outputs) == np.ndarray:
         out_np = outputs 
     else:
         if outputs.shape[0] != 1:
             print("Warring! this function just accept batch size of one")
         out_np = outputs[0].cpu().detach().numpy().transpose(1,2,0)
-        
+         
     if type(gt) == np.ndarray:
         gt_, *_ = map_post(gt, 3)
     else:
         if gt.shape[0] != 1:
             print("Warring! this function just accept batch size of one")        
-        gt      = gt[0].cpu().detach().numpy().astype(int)  
-        gt_, *_ = map_post(gt.transpose(1,2,0), 3)
+        gt      = gt[0].cpu().detach().numpy().astype(int).transpose(1,2,0)  
+        if gt.shape[2] == 2:
+            gt      = np.concatenate((np.zeros(gt.shape[:2] + (1,)), gt), axis=2)
+        gt_, *_ = map_post(gt, 3)
     
+    
+    if out_np.shape[2] == 2: #Cells and Touch only:
+        out_np = np.concatenate((np.zeros(out_np.shape[:2] + (1,)), out_np), axis=2)
 
+    
     if post_label == 'map' or post_label == 'all':
         #Note: Default behavior, this just shoud allow in training mode for speed purpose 
         predictionlb, prediction, region, output = map_post(out_np, 3)

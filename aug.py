@@ -83,7 +83,7 @@ def get_transforms_aug( size_input=256, size_crop=512 ):
         ])    
     
 
-def get_transforms_geom_color():        
+def get_transforms_geom_color(pad=0):#7    
     return transforms.Compose([
         
         #------------------------------------------------------------------
@@ -92,7 +92,7 @@ def get_transforms_geom_color():
         #mtrans.CenterCrop((1008, 1008)),
         #mtrans.RandomCrop( (size_crop, size_crop), limit=10, padding_mode=cv2.BORDER_REFLECT_101  ),        
         #mtrans.ToResize( (size_input, size_input), resize_mode='square', padding_mode=cv2.BORDER_REFLECT_101 ),
-        mtrans.ToPad( 7, 7, padding_mode=cv2.BORDER_CONSTANT ),
+        mtrans.ToPad( pad, pad, padding_mode=cv2.BORDER_CONSTANT ),
                        
         #------------------------------------------------------------------
         #Geometric 
@@ -142,10 +142,10 @@ def get_transforms_test(size_input=256):
         normalize,
         ])
 
-def get_simple_transforms():
+def get_simple_transforms(pad=0):
     return transforms.Compose([
         #mtrans.CenterCrop( (1008, 1008) ),
-        mtrans.ToPad( 7, 7, padding_mode=cv2.BORDER_CONSTANT ),
+        mtrans.ToPad( pad, pad, padding_mode=cv2.BORDER_CONSTANT ),
         mtrans.ToTensor(),
         normalize,      
     ])

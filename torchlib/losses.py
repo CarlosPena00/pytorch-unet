@@ -595,7 +595,6 @@ class DiceLoss(nn.Module):
         smooth = 1
         # compute softmax over the classes axis
         input_soft = F.softmax(input, dim=1)
-
         # compute the actual dice score
         intersection = torch.sum(input_soft * target, self.dims)
         cardinality  = torch.sum((input_soft + target), self.dims)
@@ -606,7 +605,7 @@ class DiceLoss(nn.Module):
 class Dice(nn.Module):
     def __init__(self, dims=(1, 2, 3)) -> None:
         super(Dice, self).__init__()
-        self.dice_loss = DiceLoss()
+        self.dice_loss = DiceLoss(dims)
     
     def forward( self, input: torch.Tensor, target: torch.Tensor, weights=None) -> torch.Tensor:
         return +1 - self.dice_loss(input, target)
