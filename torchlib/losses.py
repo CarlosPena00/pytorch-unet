@@ -467,9 +467,10 @@ class Accuracy(nn.Module):
         super(Accuracy, self).__init__()
     
     def forward(self, input, target):
+        
         input_a = input.argmax(1)
         target_a = target.argmax(1)
-        return (input_a == target_a).float().mean()
+        return (input_a[(input_a>0)|(target_a>0)] == target_a[(input_a>0)|(target_a>0)]).float().mean()
     
 class FocalLoss(nn.Module):
     def __init__(self):
@@ -496,7 +497,7 @@ class FocalDiceLoss(nn.Module):
     def forward(self, y_pred, y_true, weights=None):
         floss = self.focal_loss(y_pred, y_true.argmax(1))
         dloss = self.dice_loss(y_pred, y_true)
-        return ((floss + dloss)*100).clamp(0,20)
+        return ((floss + dloss)*100)
 
 class WeightedFocalDiceLoss(nn.Module):
     def __init__(self):
@@ -547,8 +548,25 @@ class BCELoss(nn.Module):
         loss_2 = self.bce(y_pred[:, 2], y_true[:, 2])
         loss_3 = self.bce(y_pred[:, 3], y_true[:, 3])
         
-        loss = loss_0 * 0.2 + loss_1 * 0.5 + loss_2 * 0.3 + loss_3 * 0.3
-        return loss
+        loss = loss_0 * 0.1 + loss_1 * 0.5 + loss_2 * 0.3 + loss_3 * 0.3
+        return loss * 100
+    
+class WeightedBCELoss(nn.Module):
+
+    def __init__(self):
+        super(WeightedBCELoss, self).__init__()
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, y_pred, y_true, weights):        
+        
+        loss_0 = self.bce(y_pred[:, 0], y_true[:, 0])
+        loss_1 = self.bce(y_pred[:, 1], y_true[:, 1])
+        loss_2 = self.bce(y_pred[:, 2], y_true[:, 2])
+        loss_3 = self.bce(y_pred[:, 3], y_true[:, 3])
+        
+        #loss = (loss_0 * 0.1 + loss_1 * 0.5 + loss_2 * 0.3 + loss_3 * 0.3) * weights
+        loss = (loss_0 + loss_1 + loss_2  + loss_3 ) * (weights)
+        return loss.mean() * 10
     
 class DiceLoss(nn.Module):
     # Adapted from: 
