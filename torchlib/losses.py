@@ -467,9 +467,10 @@ class Accuracy(nn.Module):
         super(Accuracy, self).__init__()
     
     def forward(self, input, target):
+        
         input_a = input.argmax(1)
         target_a = target.argmax(1)
-        return (input_a == target_a).float().mean()
+        return (input_a[(input_a>0)|(target_a>0)] == target_a[(input_a>0)|(target_a>0)]).float().mean()
     
 class FocalLoss(nn.Module):
     def __init__(self):
@@ -592,3 +593,82 @@ class Dice(nn.Module):
     
     def forward( self, input: torch.Tensor, target: torch.Tensor, weights=None) -> torch.Tensor:
         return +1 - self.dice_loss(input, target)
+    
+class MSELoss(nn.Module):
+    def __init__(self) -> None:
+        super(MSELoss, self).__init__()
+        self.mse_loss = nn.MSELoss()
+        
+    
+    def forward(self, input: torch.Tensor, target: torch.Tensor, w=None) -> torch.Tensor:
+        input_soft = F.softmax(input, dim=1)
+        return self.mse_loss(input_soft, target)*10
+    
+class MSEDICELoss(nn.Module):
+    def __init__(self) -> None:
+        super(MSEDICELoss, self).__init__()
+        self.mse_loss = nn.MSELoss()
+        self.dice_loss = DiceLoss()
+    
+    def forward(self, input: torch.Tensor, target: torch.Tensor, w=None) -> torch.Tensor:
+        input_soft = F.softmax(input, dim=1)
+        return self.mse_loss(input_soft, target)*10 + self.dice_loss(input, target)
+    
+class MCCLoss(nn.Module):
+    # Adpte from: https://discuss.pytorch.org/t/use-pearson-correlation-coefficient-as-cost-function/8739/7
+    def __init__(self, eps=1e-6):
+        super(MCCLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, y_pred, y_true, w=None):
+        y_pred = F.softmax(y_pred, dim=1)
+        y_true_mean = torch.mean(y_true)
+        y_pred_mean = torch.mean(y_pred)
+        y_true_var = torch.var(y_true)
+        y_pred_var = torch.var(y_pred)
+        y_true_std = torch.std(y_true)
+        y_pred_std = torch.std(y_pred)
+        vx = y_true - torch.mean(y_true)
+        vy = y_pred - torch.mean(y_pred)
+        pcc = torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2) + self.eps) * torch.sqrt(torch.sum(vy ** 2) + self.eps))
+        ccc = (2 * pcc * y_true_std * y_pred_std) / \
+              (y_true_var + y_pred_var + (y_pred_mean - y_true_mean) ** 2)
+        ccc = 1 - ccc
+        return ccc * 10
+    
+class MDiceLoss(nn.Module):
+    def __init__(self) -> None:
+        super(MDiceLoss, self).__init__()
+        self.dice_loss_bg = DiceLoss(dims=(0))
+        self.dice_loss_fg = DiceLoss(dims=(1))
+        self.dice_loss_th = DiceLoss(dims=(2))
+        self.dice_loss_gp = DiceLoss(dims=(3))
+        
+    def forward( self, input: torch.Tensor, target: torch.Tensor, w=None) -> torch.Tensor:
+        bg = self.dice_loss_bg(input, target, w)
+        fg = self.dice_loss_fg(input, target, w)
+        tg = self.dice_loss_th(input, target, w)
+        gp = self.dice_loss_gp(input, target, w)
+        return (bg*0.2) + (fg*1.1) + (tg*3) + (gp*3)
+    
+    
+class WeightedCEFocalDice(nn.Module):
+    
+    def __init__(self, alpha=1.0, gamma=1.0):
+        super(WeightedCEFocalDice, self).__init__()
+        kwargs = {"alpha": 0.25, "gamma": 2.0, "reduction": 'none'}
+        self.focal_loss = kornia.losses.FocalLoss(**kwargs)
+        self.loss_mce   = nn.CrossEntropyLoss( reduction='none')
+        self.loss_dice  = DiceLoss()                    
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, y_pred, y_true, w=None ):
+        
+        loss_f  = self.focal_loss(y_pred, y_true.argmax(1))
+        loss_m  = self.loss_mce( y_pred, y_true.argmax(1)) 
+        loss    = (loss_f*w*loss_m).mean()
+        
+        loss_d  = self.loss_dice( y_pred, y_true )          
+        loss = self.alpha*loss + self.gamma*loss_d
+        return loss

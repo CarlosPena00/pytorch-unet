@@ -391,6 +391,16 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             self.criterion = nloss.FocalDiceLoss()
         elif loss == 'wfocaldice': # Pass
             self.criterion = nloss.WeightedFocalDiceLoss()
+        elif loss == 'dice':# FAIL
+            self.criterion = nloss.DiceLoss()
+        elif loss == 'msedice':# FAIL
+            self.criterion = nloss.MSEDICELoss()
+        elif loss == 'mcc': # FAIL
+            self.criterion = nloss.MCCLoss()
+        elif loss == 'mdice': # FAIL
+            self.criterion = nloss.MDiceLoss()
+        elif loss == 'wcefd':
+            self.criterion = nloss.WeightedCEFocalDice()
         elif loss == 'jreg':
             lambda_dict={'0':{'0':  '1', '1':'0.5', '2':'0.5', '3':'0.5'},
                          '1':{'0':'0.5', '1':  '1', '2':'0.5', '3':'0.5'},
