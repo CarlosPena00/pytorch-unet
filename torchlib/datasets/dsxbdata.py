@@ -6,7 +6,9 @@ import numpy as np
 
 from torch.utils.data import Dataset
 
-from pytvision.transforms.aumentation import  ObjectImageMaskAndWeightTransform, ObjectImageAndMaskTransform
+from pytvision.transforms.aumentation import  (
+    ObjectImageMaskAndWeightTransform, ObjectImageAndMaskTransform,
+    ObjectImageMaskAndSegmentationsTransform)
 from pytvision.datasets import utility
 
 from .imageutl import dsxbExProvide, nucleiProvide2, TCellsProvide, ISBIProvide
@@ -365,72 +367,6 @@ class GenericDataset(Dataset):
         return obj.to_dict()
     
     
-class ISBIDataset(Dataset):
-
-    def __init__(self, 
-        base_folder, 
-        sub_folder,  
-        folders_images='images',
-        folders_labels='labels4c',
-        folders_weights='weights',
-        ext='tif',
-        transform=None,
-        count=1000,
-        num_channels=3,
-        num_classes=4,
-        use_weight=False,
-        weight_name='SAW',
-        ):
-
-        self.data = ISBIProvide(
-                base_folder, 
-                sub_folder, 
-                folders_images, 
-                folders_labels,
-                folders_weights,
-                ext,
-                use_weight,
-                weight_name
-                )
-
-
-        self.transform    = transform  
-        self.count        = count  
-        self.num_channels = num_channels
-        self.use_weight   = use_weight
-        self.num_classes  = num_classes
-
-    def __len__(self):
-        if self.count is None:
-            return len(self.data)
-
-        return self.count  
-
-    def __getitem__(self, idx):   
-
-        idx = idx % len(self.data)
-        data = self.data[idx]
-        if self.use_weight:
-            image, label, weight = data
-        else:
-            image, label = data
-        
-        image_t = utility.to_channels(image, ch=self.num_channels )
-        
-        label   = to_one_hot(label, self.num_classes)
-        
-        if self.use_weight:
-            obj = ObjectImageMaskAndWeightTransform(image_t, label, weight)
-        else:
-            obj = ObjectImageAndMaskTransform( image_t, label  )
-        
-        if self.transform: 
-            obj = self.transform( obj )
-            
-        obj = obj.to_dict()
-        
-        return obj
-    
     
 # TO MODIFY
 class CoseStyleDataset(Dataset):
@@ -572,3 +508,93 @@ class CoseStyleDataset(Dataset):
         
 
         return data
+    
+    
+    
+class ISBIDataset(Dataset):
+
+    def __init__(self, 
+        base_folder, 
+        sub_folder,  
+        folders_images='images',
+        folders_labels='labels4c',
+        folders_weights='weights',
+        folders_segments='outputs',
+        ext='tif',
+        transform=None,
+        count=1000,
+        num_channels=3,
+        num_classes=4,
+        use_weight=False,
+        weight_name='SAW',
+        load_segments=False,
+        shuffle_segments=False,
+        count_segments=5,
+        ):
+
+        self.data = ISBIProvide(
+                base_folder, 
+                sub_folder, 
+                folders_images, 
+                folders_labels,
+                folders_weights,
+                folders_segments,
+                ext,
+                use_weight,
+                weight_name,
+                load_segments                
+                )
+
+
+        self.transform        = transform  
+        self.count            = count  
+        self.num_channels     = num_channels
+        self.use_weight       = use_weight
+        self.num_classes      = num_classes
+        self.load_segments    = load_segments
+        self.shuffle_segments = shuffle_segments
+        self.count_segments   = count_segments
+        assert not (self.use_weight and self.load_segments)
+
+    def __len__(self):
+        if self.count is None:
+            return len(self.data)
+
+        return self.count  
+
+    def __getitem__(self, idx):   
+
+        idx = idx % len(self.data)
+        data = self.data[idx]
+        if self.use_weight:
+            image, label, weight = data
+        elif self.load_segments:
+            image, label, segs = data
+            if self.shuffle_segments:
+                segs = segs[..., np.random.permutation(segs.shape[-1])]
+            segs = segs[..., :self.count_segments]
+        else:
+            image, label = data
+        
+        image_t = utility.to_channels(image, ch=self.num_channels)
+        
+        label   = to_one_hot(label, self.num_classes)
+        
+        if self.use_weight:
+            obj = ObjectImageMaskAndWeightTransform(image_t, label, weight)
+        elif self.load_segments:
+            obj = ObjectImageMaskAndSegmentationsTransform( image_t, label, segs )
+        else:
+            obj = ObjectImageAndMaskTransform( image_t, label  )
+        
+        if self.transform: 
+            obj = self.transform( obj )
+            
+        obj = obj.to_dict()
+        
+        if self.load_segments: ## Warring!
+            axis = np.argmin(obj['segment'].shape)
+            inputs = np.concatenate((obj['image'], obj['segment']), axis=axis)
+            obj['image'] = inputs
+            obj.pop('segment')        
+        return obj

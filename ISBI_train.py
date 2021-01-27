@@ -116,6 +116,10 @@ def arg_parser():
                         help='weight, | SAW | DWM | ')
     parser.add_argument('--pad', default=0, type=int,
                         help='pad px')
+    parser.add_argument('--load-segments', default=False,
+                        help='load segments')
+    parser.add_argument('--count-segs', type=int, default=5,
+                        help='count of segs')
     return parser
 
 
@@ -134,9 +138,10 @@ def main():
     count_test   = args.count_test #5000
     post_method  = args.post_method
     weight       = args.weight
-    pad          = args.pad
+    pad          = int(args.pad)
+    count_segs   = int(args.count_segs)
+    load_segs    = bool(args.load_segments)
     use_weights  = weight!=''
-
     
     folders_contours ='touchs'
         
@@ -158,7 +163,7 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels,
+        num_input_channels=num_channels+count_segs,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
@@ -173,11 +178,6 @@ def main():
     # resume model
     if args.resume:
         network.resume( os.path.join(network.pathmodels, args.resume ) )
-
-    # print neural net class
-    print('Load model: ')
-    print(network)
-
         
     # datasets
     # training dataset
@@ -190,7 +190,10 @@ def main():
         num_channels=num_channels,
         transform=get_transforms_geom_color(pad=pad),
         use_weight=use_weights,
-        weight_name=weight
+        weight_name=weight,
+        load_segments=load_segs,
+        shuffle_segments=True,
+        count_segments=count_segs
     )
     
     train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
@@ -205,7 +208,10 @@ def main():
         num_channels=num_channels,
         transform=get_simple_transforms(pad=pad),
         use_weight=use_weights,
-        weight_name=weight
+        weight_name=weight,
+        load_segments=load_segs,
+        shuffle_segments=False,
+        count_segments=count_segs
     )
         
     val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
@@ -217,12 +223,14 @@ def main():
     # print neural net class
     print('SEG-Torch: {}'.format(datetime.datetime.now()) )
     print(network)
+    
     # training neural net
     def count_parameters(model):
 
         return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
 
     print('N Param: ', count_parameters(network))
+    
     network.fit( train_loader, val_loader, args.epochs, args.snapshot )
                    
     print("Optimization Finished!")

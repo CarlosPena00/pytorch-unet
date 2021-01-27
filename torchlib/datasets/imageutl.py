@@ -9,6 +9,8 @@ import random
 import csv
 import pandas as pd
 import operator
+from glob import glob
+from pathlib import Path
 
 from pytvision.datasets.imageutl import dataProvide
 
@@ -582,16 +584,18 @@ class ISBIProvide(dataProvide):
         folders_images='images',
         folders_labels='labels',
         folders_weights='weights',
+        folders_segments='outputs',
         ext='tif',
         use_weight=False,
-        weight_name='SAW'
+        weight_name='SAW',
+        load_segments=False,
         ):
         super(ISBIProvide, self).__init__( );        
-        base_folder = os.path.expanduser( base_folder )
-        self.use_weight  = use_weight
-        
-        self.path = base_folder
-        self.subpath = sub_folder
+        base_folder         = os.path.expanduser( base_folder )
+        self.use_weight     = use_weight
+        self.load_segments  = load_segments
+        self.path           = base_folder
+        self.subpath        = sub_folder
         self.folders_images = folders_images
         self.folders_labels = folders_labels
         
@@ -606,6 +610,21 @@ class ISBIProvide(dataProvide):
                     os.path.join(self.pathimages,   '{}'.format(f) ),
                     os.path.join(self.pathlabels,   '{}'.format(f) ),
                     os.path.join(self.pathweight,   '{}'.format(f.replace(ext, "npz")) )                    
+                )
+                for f in sorted(os.listdir(self.pathlabels)) if f.split('.')[-1] == ext             
+                ];
+            
+        elif self.load_segments:
+            
+            self.pathseg = os.path.join( base_folder, sub_folder, folders_segments)
+            
+            self.data = [             
+                (
+                    f, 
+                    os.path.join(self.pathimages,   '{}'.format(f) ),
+                    os.path.join(self.pathlabels,   '{}'.format(f) ),
+                    os.path.join(self.pathseg,   '{}'.format(f) ),
+                    
                 )
                 for f in sorted(os.listdir(self.pathlabels)) if f.split('.')[-1] == ext             
                 ];
@@ -624,8 +643,7 @@ class ISBIProvide(dataProvide):
     def getid(self): return self.data[self.index][0]
 
 
-    def __getitem__(self, i):
-                
+    def __getitem__(self, i):                
         #check index
         if i<0 and i>len(self.data): raise ValueError('Index outside range');
         self.index = i;                 
@@ -642,5 +660,13 @@ class ISBIProvide(dataProvide):
             weight_pathname = self.data[i][3]
             weight          = np.load(weight_pathname)['arr_0']
             return image, label, weight
+        
+        if self.load_segments:
+            segments_pathname = self.data[i][3]
+            file_name = Path(segments_pathname).name
+            pathsegs = sorted(glob(segments_pathname.replace(file_name, f'*/{file_name}')))
+            alfa = cv2.imread(pathsegs[0],-1)
+            segs = np.concatenate([cv2.imread(url, -1)[..., None] for url in pathsegs], axis=2)
+            return image, label, segs
 
         return image, label
