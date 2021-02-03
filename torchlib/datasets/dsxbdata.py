@@ -519,7 +519,7 @@ class ISBIDataset(Dataset):
         folders_images='images',
         folders_labels='labels4c',
         folders_weights='weights',
-        folders_segments='[outputs, extra]*',
+        folders_segments='outputs',
         ext='tif',
         transform=None,
         count=1000,
