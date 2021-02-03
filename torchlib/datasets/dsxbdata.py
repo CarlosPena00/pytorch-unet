@@ -3,7 +3,7 @@ import cv2
 import imutils
 import os
 import numpy as np
-
+import torch
 from torch.utils.data import Dataset
 
 from pytvision.transforms.aumentation import  (
@@ -519,7 +519,7 @@ class ISBIDataset(Dataset):
         folders_images='images',
         folders_labels='labels4c',
         folders_weights='weights',
-        folders_segments='outputs',
+        folders_segments='[outputs, extra]*',
         ext='tif',
         transform=None,
         count=1000,
@@ -594,7 +594,11 @@ class ISBIDataset(Dataset):
         
         if self.load_segments: ## Warring!
             axis = np.argmin(obj['segment'].shape)
-            inputs = np.concatenate((obj['image'], obj['segment']), axis=axis)
+            if self.transform:
+                inputs = torch.cat((obj['image'], obj['segment']), dim=axis)
+            else:
+                inputs = np.concatenate((obj['image'], obj['segment']), axis=axis)
+            
             obj['image'] = inputs
             obj.pop('segment')        
         return obj

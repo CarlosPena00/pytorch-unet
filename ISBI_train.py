@@ -163,7 +163,7 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels+count_segs,
+        num_input_channels=num_channels+count_segs if load_segs else num_channels,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
