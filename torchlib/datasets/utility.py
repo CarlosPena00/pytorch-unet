@@ -27,6 +27,15 @@ headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.146 Safari/537.36',
 }
 
+def to_one_hot(x, nc=4):
+    
+    y = np.zeros(x.shape + (nc,), dtype=np.long)
+    for idx in range(nc):
+        y[..., idx] = (x == idx)
+    return y
+
+
+
 def download_images( pack ):
     '''
     @pack: [ key, url, output ]

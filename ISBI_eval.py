@@ -1,5 +1,3 @@
-
-
 # STD MODULE
 import os
 import numpy as np
@@ -114,6 +112,14 @@ def arg_parser():
                     help='Parallel')    
     parser.add_argument('--post-method', default='map', type=str,
                         help='Post processing method, | map | th | wts')
+    parser.add_argument('--weight', default='', type=str,
+                        help='weight, | SAW | DWM | ')
+    parser.add_argument('--pad', default=0, type=int,
+                        help='pad px')
+    parser.add_argument('--load-segments', default=False,
+                        help='load segments')
+    parser.add_argument('--count-segs', type=int, default=5,
+                        help='count of segs')
     return parser
 
 
@@ -131,6 +137,12 @@ def main():
     count_train  = args.count_train #10000
     count_test   = args.count_test #5000
     post_method  = args.post_method
+    weight       = args.weight
+    pad          = int(args.pad)
+    count_segs   = int(args.count_segs)
+    load_segs    = args.load_segments
+    
+    use_weights  = weight != ''
     
     folders_contours ='touchs'
         
@@ -138,6 +150,7 @@ def main():
     print('\nArgs:')
     [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
     print('')
+    
     
     network = SegmentationNeuralNet(
         patchproject=args.project,
@@ -152,7 +165,7 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels,
+        num_input_channels=num_channels+count_segs if load_segs else num_channels,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
@@ -165,59 +178,30 @@ def main():
     cudnn.benchmark = True
 
     # resume model
+    print(os.path.join(network.pathmodels, args.resume ) )
+    
     if args.resume:
         network.resume( os.path.join(network.pathmodels, args.resume ) )
-
-    # print neural net class
-    print('Load model: ')
-    print(network)
-
         
     # datasets
     # training dataset
-    train_data = dsxbdata.GenericDataset(
-        args.data, 
-        'train_single', 
-        #folders_contours=folders_contours,
-        count=count_train,
-        num_channels=num_channels,
-        transform=get_transforms_geom_color(),
-        use_weight=True
-    )
 
-    """
-    train_data = dsxbdata.TCellsDataset(
+    test_data = dsxbdata.ISBIDataset(
         args.data, 
-        "train_single", 
-        count=count_train,
-        num_channels=num_channels,
-        transform=get_simple_transforms(),
-        )
-    """
-    
-    train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
-        num_workers=args.workers, pin_memory=network.cuda, drop_last=True )
-    
-    val_data = dsxbdata.GenericDataset(
-        args.data, 
-        "validation", 
-        #folders_contours=folders_contours,
+        "test", 
+        folders_labels=f'labels{num_classes}c',
         count=None,
+        num_classes=num_classes,
         num_channels=num_channels,
-        transform=get_simple_transforms(),
-        use_weight=True
+        transform=get_simple_transforms(pad=pad),
+        use_weight=use_weights,
+        weight_name=weight,
+        load_segments=load_segs,
+        shuffle_segments=False,
+        count_segments=count_segs
     )
         
-    # validate dataset
-    """val_data = dsxbdata.TCellsDataset(
-        args.data, 
-        "validation", 
-        count=count_test,
-        num_channels=num_channels,
-        transform=get_simple_transforms(),
-        )
-"""
-    val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
+    test_loader = DataLoader(test_data, batch_size=args.batch_size_test, shuffle=False, 
         num_workers=args.workers, pin_memory=network.cuda, drop_last=False)
     print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
     
@@ -226,15 +210,17 @@ def main():
     # print neural net class
     print('SEG-Torch: {}'.format(datetime.datetime.now()) )
     print(network)
+    
     # training neural net
     def count_parameters(model):
 
         return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
 
     print('N Param: ', count_parameters(network))
-    network.fit( train_loader, val_loader, args.epochs, args.snapshot )
+    
+    network.evaluate( test_loader, args.epochs)
                    
-    print("Optimization Finished!")
+    print("Eval Finished!")
     print("DONE!!!")
 
 
