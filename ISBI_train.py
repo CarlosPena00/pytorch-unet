@@ -62,22 +62,18 @@ def arg_parser():
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
-    
     parser.add_argument('--batch-size-train', default=48, type=int, metavar='N', 
                         help='mini-batch size of train set (default: 48)')    
     parser.add_argument('--batch-size-test', default=48, type=int, metavar='N', 
                         help='mini-batch size of test set (default: 48)') 
-    
     parser.add_argument('--count-train', default=48, type=int, metavar='N', 
                         help='count of train set (default: 100000)')    
     parser.add_argument('--count-test', default=48, type=int, metavar='N', 
                         help='count of test set (default: 5000)')     
-
     parser.add_argument('--num-channels', default=3, type=int, metavar='N', 
                         help='num channels (default: 3)')      
     parser.add_argument('--num-classes', default=3, type=int, metavar='N', 
                         help='num of classes (default: 3)') 
-    
     parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float, metavar='LR',
                         help='initial learning rate')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -91,25 +87,23 @@ def arg_parser():
     parser.add_argument('--name', default='exp', type=str,
                         help='name of experiment')
     parser.add_argument('--resume', default='model_best.pth.tar', type=str, metavar='NAME',
-                    help='name to latest checkpoint (default: none)')
+                        help='name to latest checkpoint (default: none)')
     parser.add_argument('--arch', default='simplenet', type=str,
                         help='architecture')
     parser.add_argument('--finetuning', action='store_true', default=False,
-                    help='Finetuning')
+                        help='Finetuning')
     parser.add_argument('--loss', default='cross', type=str,
                         help='loss function')
     parser.add_argument('--opt', default='adam', type=str,
                         help='optimize function')
     parser.add_argument('--scheduler', default='fixed', type=str,
                         help='scheduler function for learning rate')
-
     parser.add_argument('--image-crop', default=512, type=int, metavar='N',
                         help='image crop')
     parser.add_argument('--image-size', default=256, type=int, metavar='N',
                         help='image size')
-    
     parser.add_argument('--parallel', action='store_true', default=False,
-                    help='Parallel')    
+                        help='Parallel')    
     parser.add_argument('--post-method', default='map', type=str,
                         help='Post processing method, | map | th | wts')
     parser.add_argument('--weight', default='', type=str,
@@ -120,6 +114,13 @@ def arg_parser():
                         help='load segments')
     parser.add_argument('--count-segs', type=int, default=5,
                         help='count of segs')
+    parser.add_argument('--load-extra', type=bool, default=False,
+                        help='load extra')
+    parser.add_argument('--cascade', type=str, default='none',
+                        help='load extra')
+    parser.add_argument('--numsegs', type=int, default='none',
+                        help='number of segs')
+    
     return parser
 
 
@@ -138,6 +139,7 @@ def main():
     count_test   = args.count_test #5000
     post_method  = args.post_method
     weight       = args.weight
+    numsegs      = int(args.numsegs)
     pad          = int(args.pad)
     count_segs   = int(args.count_segs)
     load_segs    = bool(args.load_segments)
@@ -149,7 +151,7 @@ def main():
     print('\nArgs:')
     [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
     print('')
-    
+
     network = SegmentationNeuralNet(
         patchproject=args.project,
         nameproject=args.name,
@@ -163,14 +165,15 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels+count_segs if load_segs else num_channels,
+        num_input_channels=num_channels+numsegs if load_segs else num_channels,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
         optimizer=args.opt,
         lrsch=args.scheduler,
         pretrained=args.finetuning,
-        size_input=imsize
+        size_input=imsize,
+        cascade_type=args.cascade
         )
     
     cudnn.benchmark = True
@@ -179,8 +182,11 @@ def main():
     if args.resume:
         network.resume( os.path.join(network.pathmodels, args.resume ) )
         
+        
+    
     # datasets
     # training dataset
+    print("Warring! training with shuffle false")
     train_data = dsxbdata.ISBIDataset(
         args.data, 
         'train', 
@@ -197,7 +203,7 @@ def main():
     )
     
     train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
-        num_workers=args.workers, pin_memory=network.cuda, drop_last=True )
+        num_workers=args.workers, pin_memory=False, drop_last=True )
     
     val_data = dsxbdata.ISBIDataset(
         args.data, 
@@ -215,14 +221,14 @@ def main():
     )
         
     val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
-        num_workers=args.workers, pin_memory=network.cuda, drop_last=False)
+        num_workers=args.workers, pin_memory=False, drop_last=False)
     print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
     
 
         
     # print neural net class
     print('SEG-Torch: {}'.format(datetime.datetime.now()) )
-    print(network)
+    #print(network)
     
     # training neural net
     def count_parameters(model):
@@ -230,7 +236,7 @@ def main():
         return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
 
     print('N Param: ', count_parameters(network))
-    
+
     network.fit( train_loader, val_loader, args.epochs, args.snapshot )
                    
     print("Optimization Finished!")

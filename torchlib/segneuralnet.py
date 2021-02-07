@@ -73,6 +73,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         weight_decay=5e-4,      
         pretrained=False,
         size_input=388,
+        cascade_type='none'
         ):
         """
         Create
@@ -105,6 +106,16 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         )
         self.size_input = size_input
         self.num_output_channels = num_output_channels
+        self.cascade_type = cascade_type
+        
+        if self.cascade_type == 'none':
+            self.step = self.default_step
+        elif self.cascade_type == 'ransac':
+            self.step = self.ransac_step
+        elif self.cascade_type == 'simple':
+            self.step = self.cascate_step
+        else:
+            raise "Cascada not found"
         
         self.accuracy = nloss.Accuracy()
         if num_output_channels == 2:
@@ -123,9 +134,75 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         if self.half_precision:
             self.scaler = torch.cuda.amp.GradScaler()
 
+            
+    def ransac_step(self, inputs, targets, max_deep=3, segs_per_forward=5, src_c=3, verbose=False):
+        srcs = inputs[:, :src_c]
+        segs = inputs[:, src_c:]
+        lv_segs = segs#.clone()
+        
+
+        first = True
+        final_loss = 0.0
+        for lv in range(max_deep):
+            n_segs = segs.shape[1]
+            new_segs = []
+            actual_c = segs_per_forward ** (max_deep - lv)
+            if verbose: print(segs.shape, actual_c)
+            actual_seg_ids = np.random.choice(range(n_segs), size=actual_c)
+            step_segs = segs[:, actual_seg_ids]
+            
+            for idx in range(0, actual_c, segs_per_forward):
+                mini_inp = torch.cat((srcs, step_segs[:, idx:idx+segs_per_forward]), dim=1)
+                mini_out = self.net(mini_inp)
+                ## calculate loss
+                final_loss += self.criterion(mini_out, targets) * 1
+                new_segs.append(mini_out.argmax(1, keepdim=True))
+                
+
+                if verbose: print(mini_inp.shape, idx, idx+segs_per_forward, actual_loss.item())
+            
+            segs = torch.cat(new_segs, dim=1)
+            
+        return final_loss, mini_out
+
+
+    def cascate_step(self, inputs, targets, segs_per_forward=5, src_c=3, verbose=False):
+
+        srcs = inputs[:, :src_c]
+        segs = inputs[:, src_c:]
+        lv_segs = segs.clone()
+
+        final_loss = 0.0
+        n_segs = lv_segs.shape[1]
+        actual_seg_ids = np.random.choice(range(n_segs), size=n_segs, replace=False)
+        lv_segs = lv_segs[:, actual_seg_ids]
+
+        while n_segs > 1:
+
+            if verbose: print(n_segs)
+
+            inputs_seg = lv_segs[:, :segs_per_forward]
+            inputs_seg_ids = np.random.choice(range(inputs_seg.shape[1]), 
+                                              size=segs_per_forward, replace=inputs_seg.shape[1]<segs_per_forward)
+            inputs_seg = inputs_seg[:, inputs_seg_ids]
+
+            mini_inp = torch.cat((srcs, inputs_seg), dim=1)
+            mini_out = self.net(mini_inp)
+            ## calculate loss
+            final_loss += self.criterion(mini_out, targets)
+
+            if verbose: print(mini_inp.shape, segs_per_forward, actual_loss.item())
+            lv_segs = torch.cat((lv_segs[:, segs_per_forward:], mini_out.argmax(1, keepdim=True)), dim=1)
+            n_segs = lv_segs.shape[1]
+        return final_loss, mini_out
+    
+    def default_step(self, inputs, targets):
+        outputs = self.net(inputs)            
+        loss    = self.criterion(outputs, targets)
+        return loss, outputs
+
       
     def training(self, data_loader, epoch=0):        
-
         #reset logger
         self.logger_train.reset()
         data_time = AverageMeter()
@@ -156,16 +233,17 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             # fit (forward)
             if self.half_precision:
                 with torch.cuda.amp.autocast():
-                    outputs = self.net(inputs)            
-                    loss    = self.criterion(outputs, targets, weights)
+                    
+                    loss, outputs = self.step(inputs, targets)
+                    
                     self.optimizer.zero_grad()            
                     self.scaler.scale(loss*batch_size).backward()  
                     self.scaler.step(self.optimizer) 
                     self.scaler.update()
 
             else:
-                outputs = self.net(inputs)            
-                loss    = self.criterion(outputs, targets, weights)            
+                loss, outputs = self.step(inputs, targets)
+                    
                 self.optimizer.zero_grad()
                 (batch_size*loss).backward() #batch_size
                 self.optimizer.step()
@@ -193,8 +271,6 @@ class SegmentationNeuralNet(NeuralNetAbstract):
 
 
     def evaluate(self, data_loader, epoch=0):
-        
-        # reset loader
         pq_sum      = 0
         total_cells = 0
         self.logger_val.reset()
@@ -223,18 +299,18 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                     if type(weights) is not type(None):
                         weights = weights.cuda()
                 #print(inputs.shape)
-                                 
+                              
                 # fit (forward)
                 if self.half_precision:
                     with torch.cuda.amp.autocast():
-                        outputs = self.net(inputs)
-                        
+                        loss, outputs = self.step(inputs, targets)   
                 else:
-                    outputs = self.net(inputs)
+                    loss, outputs = self.step(inputs, targets)
+                       
 
                 # measure accuracy and record loss
                 
-                loss  = self.criterion(outputs, targets, weights)   
+                
                 accs  = self.accuracy(outputs, targets )
                 dices = self.dice( outputs, targets )   
                 
@@ -279,9 +355,6 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                         bsummary=False,
                         )
                 
-
-                
-
         #save validation loss
         if total_cells == 0:
             pq_weight = 0

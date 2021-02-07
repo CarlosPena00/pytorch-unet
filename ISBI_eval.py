@@ -147,9 +147,6 @@ def main():
     folders_contours ='touchs'
         
     print('Baseline clasification {}!!!'.format(datetime.datetime.now()))
-    print('\nArgs:')
-    [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
-    print('')
     
     
     network = SegmentationNeuralNet(
@@ -175,16 +172,10 @@ def main():
         size_input=imsize
         )
     
-    cudnn.benchmark = True
-
-    # resume model
-    print(os.path.join(network.pathmodels, args.resume ) )
+    epoch, value = (network.resume( os.path.join(network.pathmodels, args.resume ) ))
+    assert epoch != 0, "Model W not found"
     
-    if args.resume:
-        network.resume( os.path.join(network.pathmodels, args.resume ) )
-        
-    # datasets
-    # training dataset
+    cudnn.benchmark = True
 
     test_data = dsxbdata.ISBIDataset(
         args.data, 
@@ -203,22 +194,9 @@ def main():
         
     test_loader = DataLoader(test_data, batch_size=args.batch_size_test, shuffle=False, 
         num_workers=args.workers, pin_memory=network.cuda, drop_last=False)
-    print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
     
-
-        
-    # print neural net class
-    print('SEG-Torch: {}'.format(datetime.datetime.now()) )
-    print(network)
-    
-    # training neural net
-    def count_parameters(model):
-
-        return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
-
-    print('N Param: ', count_parameters(network))
-    
-    network.evaluate( test_loader, args.epochs)
+    print(f"Model Val set: {value:0.3f}")
+    network.evaluate( test_loader, epoch)
                    
     print("Eval Finished!")
     print("DONE!!!")
