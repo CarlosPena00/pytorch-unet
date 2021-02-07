@@ -4,10 +4,11 @@ from scipy.ndimage.morphology import binary_fill_holes
 from scipy import ndimage
 from skimage.segmentation import find_boundaries
 from skimage.measure import regionprops
-from skimage.morphology import watershed
-
+#from skimage.morphology import watershed
+from skimage.segmentation import watershed
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+
 def myplot(image):
     fig, ax=plt.subplots()
     plt3=ax.matshow(image,cmap=plt.get_cmap('jet'))

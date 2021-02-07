@@ -42,7 +42,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         print_freq=10,
         gpu=0,
         view_freq=1,
-        half_precision=True
+        half_precision=False
         ):
         """
         Initialization
@@ -118,8 +118,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         self.logger_train = Logger( 'Train', ['loss'], ['accs', 'dices'], self.plotter  )
         self.logger_val   = Logger( 'Val  ', ['loss'], ['accs', 'dices', 'PQ'], self.plotter )
 
-        self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(100,100) )
-        self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(100,100) )
+        self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(256,256) )
+        self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(256,256) )
         if self.half_precision:
             self.scaler = torch.cuda.amp.GradScaler()
 
@@ -404,6 +404,10 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             self.criterion = nloss.MCEDiceLoss()  
         elif loss == 'bce': # Pass
             self.criterion = nloss.BCELoss()
+        elif loss == 'bce2c': # Pass
+            self.criterion = nloss.BCELoss2c()
+        elif loss == 'mce': # Pass
+            self.criterion = nloss.MCELoss()
         elif loss == 'wbce':
             self.criterion = nloss.WeightedBCELoss()
         elif loss == 'wce': # Pass

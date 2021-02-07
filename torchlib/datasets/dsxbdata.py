@@ -18,12 +18,9 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore")
 
-
-
 train = 'train'
 validation = 'val'
 test  = 'test'
-
 
 class DSXBDataset(Dataset):
     '''
@@ -519,7 +516,7 @@ class ISBIDataset(Dataset):
         folders_images='images',
         folders_labels='labels4c',
         folders_weights='weights',
-        folders_segments='outputs',
+        folders_segments='netout',
         ext='tif',
         transform=None,
         count=1000,

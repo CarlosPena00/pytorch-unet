@@ -533,7 +533,18 @@ class WeightedCrossEntropyLoss(nn.Module):
         y_true_hot = y_true.argmax(1)
         loss = self.bce(y_pred, y_true_hot.long()) * weight
         return (loss.mean()*10).clamp(0, 20)
+
+
+class MCELoss(nn.Module):
+
+    def __init__(self):
+        super(MCELoss, self).__init__()
+        self.bce = nn.CrossEntropyLoss(weight=torch.tensor([1, 14.6]).cuda())
         
+    def forward(self, y_pred, y_true, weight):
+        y_true_hot = y_true.argmax(1)
+        loss = self.bce(y_pred, y_true_hot.long())  
+        return loss.mean() * 10
 
 class BCELoss(nn.Module):
 
@@ -550,6 +561,25 @@ class BCELoss(nn.Module):
         
         loss = loss_0 * 0.1 + loss_1 * 0.5 + loss_2 * 0.3 + loss_3 * 0.3
         return loss * 100
+    
+
+class BCELoss2c(nn.Module):
+
+    def __init__(self):
+        super(BCELoss2c, self).__init__()
+        self.bce0 = nn.BCEWithLogitsLoss()
+        self.bce1 = nn.BCEWithLogitsLoss()
+
+        print("INIT BCE LOSS2C")
+
+    def forward(self, y_pred, y_true, weights=None):        
+        
+        loss_0 = self.bce0(y_pred[:, 0], y_true[:, 0])
+        loss_1 = self.bce1(y_pred[:, 1], y_true[:, 1])
+        
+        
+        loss = (loss_0 )+ (loss_1)#* 14.6 * 4)## old 0.2 | 1
+        return loss 
     
 class WeightedBCELoss(nn.Module):
 
