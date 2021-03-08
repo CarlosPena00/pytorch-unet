@@ -6,9 +6,9 @@ import shutil
 import time
 
 import torch
-from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 
 import numpy as np
 import time
@@ -17,10 +17,11 @@ from tqdm import tqdm
 from . import models as nnmodels
 from . import losses as nloss
 from . import metrics
+from . import utils
 
 from pytvision.neuralnet import NeuralNetAbstract
-from pytvision.logger import Logger, AverageFilterMeter, AverageMeter
-from pytvision import graphic as gph
+#from pytvision.logger import Logger, AverageFilterMeter, AverageMeter
+#from pytvision import graphic as gph
 from pytvision import netlearningrate
 from pytvision import utils as pytutils
 
@@ -73,7 +74,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         weight_decay=5e-4,      
         pretrained=False,
         size_input=388,
-        cascade_type='none'
+        cascade_type='none',
+        writer=None,
         ):
         """
         Create
@@ -117,25 +119,55 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         else:
             raise "Cascada not found"
         
-        self.accuracy = nloss.Accuracy()
         if num_output_channels == 2:
             dice_dim = (1,)
         if num_output_channels == 4:
             dice_dim = (1,2,3)
         
-        self.dice = nloss.Dice(dice_dim)
-       
-        # Set the graphic visualization
-        self.logger_train = Logger( 'Train', ['loss'], ['accs', 'dices'], self.plotter  )
-        self.logger_val   = Logger( 'Val  ', ['loss'], ['accs', 'dices', 'PQ'], self.plotter )
-
-        self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(256,256) )
-        self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(256,256) )
+        self.writer = writer
+        self.norm_inv = utils.NormalizeInverse()
+        
+        #self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(256,256) )
+        #self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(256,256) )
+        
         if self.half_precision:
             self.scaler = torch.cuda.amp.GradScaler()
-
             
-    def ransac_step(self, inputs, targets, max_deep=3, segs_per_forward=5, src_c=3, verbose=False):
+    def write_data(self, tag, metrics_mean, epoch):
+        
+        self.writer.add_scalar(f'Loss/{tag}',  metrics_mean['loss'], epoch)
+        #self.writer.add_scalar(f'Accs/{tag}',  metrics_mean['Accs'], epoch)
+        if tag == 'Val' or tag == 'Test':
+            self.writer.add_scalar(f'PQ/{tag}', metrics_mean['pq'], epoch)
+            self.writer.add_scalar(f'SQ/{tag}', metrics_mean['sq'], epoch)
+            self.writer.add_scalar(f'RQ/{tag}', metrics_mean['rq'], epoch)
+            
+    def get_mean_metrics(self, metrics_sum):
+        metrics_mean = {}
+        metrics_mean['loss'] = np.mean(metrics_sum['loss'])
+        metrics_mean['pq'] = metrics_sum['pq'] / metrics_sum['n_cells']
+        metrics_mean['sq'] = metrics_sum['sq'] / metrics_sum['n_cells']
+        metrics_mean['rq'] = metrics_sum['rq'] / metrics_sum['n_cells']
+        
+        return metrics_mean
+
+    def show_data(self, tag, inputs, targets, outputs, epoch):
+        grid   = torchvision.utils.make_grid(inputs)
+        grid   = self.norm_inv(grid.cpu().detach())
+        self.writer.add_image(f'{tag}/Inputs', grid, epoch)
+
+        grid   = torchvision.utils.make_grid(targets.argmax(1, keepdim=True))
+        self.writer.add_image(f'{tag}/Targets', grid, epoch)
+
+        grid   = torchvision.utils.make_grid(outputs.argmax(1, keepdim=True))
+        self.writer.add_image(f'{tag}/Map', grid, epoch)
+        prob = F.softmax(outputs.detach().cpu().float(), dim=1)
+        
+        for ch in range(prob.shape[1]):
+            fig = utils.get_fig_wcolor(prob[0,ch])
+            self.writer.add_figure(f'{tag}/Prob{ch}', fig, epoch)
+            
+    def ransac_step(self, inputs, targets, max_deep=3, segs_per_forward=17, src_c=3, verbose=False):
         srcs = inputs[:, :src_c]
         segs = inputs[:, src_c:]
         lv_segs = segs#.clone()
@@ -166,7 +198,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         return final_loss, mini_out
 
 
-    def cascate_step(self, inputs, targets, segs_per_forward=5, src_c=3, verbose=False):
+    def cascate_step(self, inputs, targets, segs_per_forward=17, src_c=3, verbose=False):
 
         srcs = inputs[:, :src_c]
         segs = inputs[:, src_c:]
@@ -202,20 +234,16 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         return loss, outputs
 
       
-    def training(self, data_loader, epoch=0):        
+    def training(self, data_loader, epoch=0, tag='Train'):        
         #reset logger
-        self.logger_train.reset()
-        data_time = AverageMeter()
-        batch_time = AverageMeter()
-
+        metrics_sum = {'loss':[]}
+        
         # switch to evaluate mode
         self.net.train()
 
-        end = time.time()
+        start = time.time()
         for i, sample in enumerate(data_loader):
             
-            # measure data loading time
-            data_time.update(time.time() - end)
             # get data (image, label, weight)
             inputs, targets = sample['image'], sample['label']
             weights = None
@@ -248,40 +276,30 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 (batch_size*loss).backward() #batch_size
                 self.optimizer.step()
             
-            accs  = self.accuracy(outputs, targets)
-            dices = self.dice(outputs, targets)
             #pq    = metrics.pq_metric(outputs.cpu().detach().numpy(), targets.cpu().detach().numpy())
             #pq, n_cells  = metrics.pq_metric(targets, outputs)
-
-            # update
-            self.logger_train.update(
-                {'loss': loss.item() },
-                {'accs': accs.item(), 
-                 #'PQ': pq,
-                 'dices': dices.item() },      
-                batch_size,          
-                )
+            metrics_sum['loss'].append(loss.item())
 
             # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            if i % self.print_freq == 0:  
-                self.logger_train.logger( epoch, epoch + float(i+1)/len(data_loader), i, len(data_loader), batch_time,   )
-
-
-    def evaluate(self, data_loader, epoch=0):
-        pq_sum      = 0
+        mean_metrics = {'loss':np.mean(metrics_sum['loss'])}
+        self.write_data(tag, mean_metrics, epoch)
+        self.show_data(tag, inputs, targets, outputs, epoch)
+        end = time.time()
+        print(f"{tag:6} | {epoch:03d} | {mean_metrics['loss']:0.4f} | ------ | ", end='')
+        print(f"------ | ------ | ------ | { (end - start ):0.4f} |",flush=True)
+        
+    def evaluate(self, data_loader, epoch=0, tag='Val'):
+        
+        metrics_sum = {'pq':0, 'sq':0, 'rq':0, 'f1':0, 'loss':[] ,'n_cells':0}
         total_cells = 0
-        self.logger_val.reset()
-        batch_time = AverageMeter()
+        
 
         # switch to evaluate mode
         self.net.eval()
         with torch.no_grad():
-            end = time.time()
+            start = time.time()
+            
             for i, sample in enumerate(data_loader):
-                
                 # get data (image, label)
                 inputs, targets = sample['image'], sample['label']
                 weights = None
@@ -298,26 +316,22 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                     targets = targets.cuda()
                     if type(weights) is not type(None):
                         weights = weights.cuda()
-                #print(inputs.shape)
-                              
+
                 # fit (forward)
                 if self.half_precision:
                     with torch.cuda.amp.autocast():
                         loss, outputs = self.step(inputs, targets)   
                 else:
                     loss, outputs = self.step(inputs, targets)
-                       
-
+                
                 # measure accuracy and record loss
+                metrics_sum['loss'].append(loss.item())
                 
-                
-                accs  = self.accuracy(outputs, targets )
-                dices = self.dice( outputs, targets )   
-                
-                #targets_np = targets[0][1].cpu().numpy().astype(int)
                 if epoch == 0:
-                    pq      = 0
-                    n_cells = 1
+                    metrics_sum['pq'] = 0
+                    metrics_sum['sq'] = 0
+                    metrics_sum['rq'] = 0
+                    metrics_sum['n_cells'] = 1
                 else:
                     #pq, n_cells    = metrics.pq_metric(targets, outputs)
                     if False:#self.skip_background:
@@ -327,72 +341,29 @@ class SegmentationNeuralNet(NeuralNetAbstract):
 
                     
                     all_metrics, n_cells, _ = metrics.get_metrics(targets,outputs)
-                    pq = all_metrics['pq']
                     
-                pq_sum += pq * n_cells
-                total_cells += n_cells
+                    metrics_sum['pq'] += all_metrics['pq'] * n_cells
+                    metrics_sum['sq'] += all_metrics['sq'] * n_cells
+                    metrics_sum['rq'] += all_metrics['rq'] * n_cells
+                    metrics_sum['n_cells'] += n_cells
                   
                 # measure elapsed time
-                batch_time.update(time.time() - end)
-                end = time.time()
-
-                # update
-                #print(loss.item(), accs, dices, batch_size)
-                self.logger_val.update( 
-                    {'loss': loss.item() },
-                    {'accs': accs.item(), 
-                     'PQ': (pq_sum/total_cells) if total_cells > 0 else 0,
-                     'dices': dices.item() },      
-                    batch_size,          
-                    )
-
-                if i % self.print_freq == 0:
-                    self.logger_val.logger(
-                        epoch, epoch, i,len(data_loader), 
-                        batch_time, 
-                        bplotter=False,
-                        bavg=True, 
-                        bsummary=False,
-                        )
                 
+   
         #save validation loss
-        if total_cells == 0:
-            pq_weight = 0
-        else:
-            pq_weight = pq_sum / total_cells
-
-        print(f"PQ: {pq_weight:0.4f}, {pq_sum:0.4f}, {total_cells}")
-
-        self.vallosses = self.logger_val.info['loss']['loss'].avg
-        acc = self.logger_val.info['metrics']['accs'].avg
-        #pq = pq_weight
+        mean_metrics = self.get_mean_metrics(metrics_sum)
+        self.write_data(tag,mean_metrics, epoch)
+        self.show_data(tag, inputs, targets, outputs, epoch)
+        
+        end = time.time()
+        if epoch % 10 == 0:
+            pass
+        print(f"Tag    | Epo |  Loss  |   PQ   |   SQ   |   RQ   |  Time  |")
+        print(f"{tag:6} | {epoch:03d} | {mean_metrics['loss']:0.4f} | ", end='')
+        print(f"{mean_metrics['pq']:0.4f} | {mean_metrics['sq']:0.4f} | {mean_metrics['rq']:0.4f} | { (end - start ):0.4f} |")
         
 
-        self.logger_val.logger(
-            epoch, epoch, i, len(data_loader), 
-            batch_time,
-            bplotter=True,
-            bavg=True, 
-            bsummary=True,
-            )
-
-        #vizual_freq
-        if epoch % self.view_freq == 0:
-            
-            prob = F.softmax(outputs.cpu().float(), dim=1)
-            prob = prob.data[0]
-            maxprob = torch.argmax(prob, 0)
-            
-            self.visheatmap.show('Label', targets.data.cpu()[0].numpy()[1,:,:] )
-            #self.visheatmap.show('Weight map', weights.data.cpu()[0].numpy()[0,:,:])
-            self.visheatmap.show('Image', inputs.data.cpu()[0].numpy()[0,:,:])
-            self.visheatmap.show('Max prob',maxprob.cpu().numpy().astype(np.float32) )
-            for k in range(prob.shape[0]):                
-                self.visheatmap.show('Heat map {}'.format(k), prob.cpu()[k].numpy() )
-        
-
-        print(f"End Val: wPQ{pq_weight}")
-        return pq_weight
+        return mean_metrics['pq']
 
 
     def test(self, data_loader ):

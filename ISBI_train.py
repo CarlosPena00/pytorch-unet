@@ -11,6 +11,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms, utils
 import torchvision
 import torch.backends.cudnn as cudnn
+from torch.utils.tensorboard import SummaryWriter
 
 # PYTVISION MODULE
 from pytvision.transforms import transforms as mtrans
@@ -151,6 +152,9 @@ def main():
     print('\nArgs:')
     [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
     print('')
+    
+    writer = SummaryWriter('logs/'+args.name)
+
 
     network = SegmentationNeuralNet(
         patchproject=args.project,
@@ -161,7 +165,7 @@ def main():
         print_freq=args.print_freq,
         gpu=args.gpu
         )
-
+    
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
@@ -173,17 +177,16 @@ def main():
         lrsch=args.scheduler,
         pretrained=args.finetuning,
         size_input=imsize,
-        cascade_type=args.cascade
+        cascade_type=args.cascade,
+        writer=writer
         )
     
-    cudnn.benchmark = True
+    cudnn.benchmark = False #due to augmentation
 
     # resume model
     if args.resume:
         network.resume( os.path.join(network.pathmodels, args.resume ) )
-        
-        
-    
+
     # datasets
     # training dataset
     print("Warring! training with shuffle false")
@@ -223,6 +226,7 @@ def main():
     val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
         num_workers=args.workers, pin_memory=False, drop_last=False)
     print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
+    print("*"*60, len(train_loader), len(val_loader), '*'*61)
     
 
         

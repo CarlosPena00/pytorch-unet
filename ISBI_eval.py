@@ -11,6 +11,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms, utils
 import torchvision
 import torch.backends.cudnn as cudnn
+from torch.utils.tensorboard import SummaryWriter
 
 # PYTVISION MODULE
 from pytvision.transforms import transforms as mtrans
@@ -146,6 +147,7 @@ def main():
     
     folders_contours ='touchs'
         
+    writer = SummaryWriter('logs/eval '+args.name)
     print('Baseline clasification {}!!!'.format(datetime.datetime.now()))
     
     
@@ -169,7 +171,8 @@ def main():
         optimizer=args.opt,
         lrsch=args.scheduler,
         pretrained=args.finetuning,
-        size_input=imsize
+        size_input=imsize,
+        writer=writer
         )
     
     epoch, value = (network.resume( os.path.join(network.pathmodels, args.resume ) ))
