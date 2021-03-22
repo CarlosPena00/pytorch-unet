@@ -11,6 +11,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import transforms, utils
 import torchvision
 import torch.backends.cudnn as cudnn
+from torch.utils.tensorboard import SummaryWriter
 
 # PYTVISION MODULE
 from pytvision.transforms import transforms as mtrans
@@ -156,8 +157,10 @@ def main():
     use_weights  = weight != ''
     
     folders_contours ='touchs'
+
     num_input_channels = (num_channels * use_ori) + (numsegs * load_segs)
-    
+        
+    writer = SummaryWriter('logs/eval '+args.name)
     print('Baseline clasification {}!!!'.format(datetime.datetime.now()))
     
     
@@ -183,6 +186,7 @@ def main():
         pretrained=args.finetuning,
         size_input=imsize,
         cascade_type=args.cascade
+        writer=writer
         )
     
     

@@ -5,8 +5,39 @@ from scipy import ndimage
 from skimage import io, transform, filters
 from skimage import morphology as morph
 from itertools import product
+import torch
+import torchvision
 
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib import pyplot as plt
 
+def get_fig_wcolor(src):
+    fig = plt.figure(figsize=(8,8))
+    ax1 = fig.add_subplot(1,1,1)
+
+    divider = make_axes_locatable(ax1)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
+
+    im = ax1.imshow(src)
+    fig.colorbar(im, cax=cax, orientation='vertical')
+    fig.tight_layout()
+    return fig
+
+class NormalizeInverse(torchvision.transforms.Normalize):
+    """
+    Undoes the normalization and returns the reconstructed images in the input domain.
+    """
+
+    def __init__(self, mean = (0.485, 0.456, 0.406), std  = (0.229, 0.224, 0.225)):
+        mean     = torch.as_tensor(mean)
+        std      = torch.as_tensor(std)
+        std_inv  = 1 / (std + 1e-7)
+        mean_inv = -mean * std_inv
+        super().__init__(mean=mean_inv, std=std_inv)
+
+    def __call__(self, tensor):
+        return super().__call__(tensor.clone())
+    
 def summary(data):
     print(np.min(data), np.max(data), data.shape)
 
