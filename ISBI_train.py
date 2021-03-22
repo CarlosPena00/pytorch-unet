@@ -120,6 +120,8 @@ def arg_parser():
                         help='load extra')
     parser.add_argument('--numsegs', type=int, default='none',
                         help='number of segs')
+    parser.add_argument('--use-ori', type=int, default=1,
+                        help='Use Original image')
     
     return parser
 
@@ -143,6 +145,7 @@ def main():
     pad          = int(args.pad)
     count_segs   = int(args.count_segs)
     load_segs    = bool(args.load_segments)
+    use_ori      = int(args.use_ori)
     use_weights  = weight!=''
     
     folders_contours ='touchs'
@@ -151,6 +154,8 @@ def main():
     print('\nArgs:')
     [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
     print('')
+    
+    num_input_channels = (num_channels * use_ori) + (numsegs * load_segs)
 
     network = SegmentationNeuralNet(
         patchproject=args.project,
@@ -165,7 +170,7 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels+numsegs if load_segs else num_channels,
+        num_input_channels=num_input_channels,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
@@ -199,7 +204,8 @@ def main():
         weight_name=weight,
         load_segments=load_segs,
         shuffle_segments=True,
-        count_segments=count_segs
+        count_segments=count_segs,
+        use_ori=use_ori
     )
     
     train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
@@ -209,15 +215,16 @@ def main():
         args.data, 
         "val", 
         folders_labels=f'labels{num_classes}c',
-        count=None,
+        count=count_test,
         num_classes=num_classes,
         num_channels=num_channels,
         transform=get_simple_transforms(pad=pad),
         use_weight=use_weights,
         weight_name=weight,
         load_segments=load_segs,
-        shuffle_segments=False,
-        count_segments=count_segs
+        shuffle_segments=True,
+        count_segments=count_segs,
+        use_ori=use_ori
     )
         
     val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 

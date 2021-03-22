@@ -120,6 +120,15 @@ def arg_parser():
                         help='load segments')
     parser.add_argument('--count-segs', type=int, default=5,
                         help='count of segs')
+    parser.add_argument('--load-extra', type=bool, default=False,
+                        help='load extra')
+    parser.add_argument('--cascade', type=str, default='none',
+                        help='load extra')
+    parser.add_argument('--numsegs', type=int, default='none',
+                        help='number of segs')
+    parser.add_argument('--use-ori', type=int, default=True,
+                        help='Use Original image')
+    
     return parser
 
 
@@ -138,14 +147,17 @@ def main():
     count_test   = args.count_test #5000
     post_method  = args.post_method
     weight       = args.weight
+    numsegs      = int(args.numsegs)
     pad          = int(args.pad)
     count_segs   = int(args.count_segs)
-    load_segs    = args.load_segments
+    load_segs    = bool(args.load_segments)
+    use_ori      = int(args.use_ori)
     
     use_weights  = weight != ''
     
     folders_contours ='touchs'
-        
+    num_input_channels = (num_channels * use_ori) + (numsegs * load_segs)
+    
     print('Baseline clasification {}!!!'.format(datetime.datetime.now()))
     
     
@@ -162,15 +174,17 @@ def main():
     network.create( 
         arch=args.arch, 
         num_output_channels=num_classes, 
-        num_input_channels=num_channels+count_segs if load_segs else num_channels,
+        num_input_channels=num_input_channels,
         loss=args.loss, 
         lr=args.lr, 
         momentum=args.momentum,
         optimizer=args.opt,
         lrsch=args.scheduler,
         pretrained=args.finetuning,
-        size_input=imsize
+        size_input=imsize,
+        cascade_type=args.cascade
         )
+    
     
     epoch, value = (network.resume( os.path.join(network.pathmodels, args.resume ) ))
     assert epoch != 0, "Model W not found"
@@ -189,7 +203,8 @@ def main():
         weight_name=weight,
         load_segments=load_segs,
         shuffle_segments=False,
-        count_segments=count_segs
+        count_segments=count_segs,
+        use_ori=use_ori
     )
         
     test_loader = DataLoader(test_data, batch_size=args.batch_size_test, shuffle=False, 
