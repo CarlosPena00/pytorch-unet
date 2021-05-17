@@ -665,7 +665,8 @@ class ISBIProvide(dataProvide):
             segments_pathname = self.data[i][3]
             file_name = Path(segments_pathname).name
             pathsegs = sorted(glob(segments_pathname.replace(file_name, f'*/{file_name}')))
-            alfa = cv2.imread(pathsegs[0],-1)
+
+            #alfa = cv2.imread(pathsegs[0],-1)
             segs = np.concatenate([cv2.imread(url, -1)[..., None] for url in pathsegs], axis=2)
             return image, label, segs
 

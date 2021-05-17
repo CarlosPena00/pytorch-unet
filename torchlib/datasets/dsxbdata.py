@@ -516,7 +516,7 @@ class ISBIDataset(Dataset):
         folders_images='images',
         folders_labels='labels4c',
         folders_weights='weights',
-        folders_segments='netout',
+        folders_segments='outputs',
         ext='tif',
         transform=None,
         count=1000,
@@ -526,7 +526,7 @@ class ISBIDataset(Dataset):
         weight_name='SAW',
         load_segments=False,
         shuffle_segments=False,
-        count_segments=5,
+        use_ori=True
         ):
 
         self.data = ISBIProvide(
@@ -550,7 +550,8 @@ class ISBIDataset(Dataset):
         self.num_classes      = num_classes
         self.load_segments    = load_segments
         self.shuffle_segments = shuffle_segments
-        self.count_segments   = count_segments
+        #self.count_segments   = count_segments
+        self.use_ori          = use_ori
         assert not (self.use_weight and self.load_segments)
 
     def __len__(self):
@@ -569,7 +570,6 @@ class ISBIDataset(Dataset):
             image, label, segs = data
             if self.shuffle_segments:
                 segs = segs[..., np.random.permutation(segs.shape[-1])]
-            segs = segs[..., :self.count_segments]
         else:
             image, label = data
         
@@ -591,11 +591,16 @@ class ISBIDataset(Dataset):
         
         if self.load_segments: ## Warring!
             axis = np.argmin(obj['segment'].shape)
-            if self.transform:
-                inputs = torch.cat((obj['image'], obj['segment']), dim=axis)
-            else:
-                inputs = np.concatenate((obj['image'], obj['segment']), axis=axis)
             
-            obj['image'] = inputs
-            obj.pop('segment')        
+            if self.use_ori:
+                if self.transform:
+                    inputs = torch.cat((obj['image'], obj['segment']), dim=axis)
+                else:
+                    inputs = np.concatenate((obj['image'], obj['segment']), axis=axis)
+                obj['image'] = inputs
+            else:
+                obj['image'] = obj['segment']
+
+            obj.pop('segment')  
+        
         return obj

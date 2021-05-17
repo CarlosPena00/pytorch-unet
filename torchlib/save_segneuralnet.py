@@ -6,25 +6,21 @@ import shutil
 import time
 
 import torch
+from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
-from pathlib import Path
 
 import numpy as np
 import time
 from tqdm import tqdm
-from datetime import datetime
 
 from . import models as nnmodels
 from . import losses as nloss
 from . import metrics
-from . import utils
 
-from tqdm import tqdm
 from pytvision.neuralnet import NeuralNetAbstract
-#from pytvision.logger import Logger, AverageFilterMeter, AverageMeter
-#from pytvision import graphic as gph
+from pytvision.logger import Logger, AverageFilterMeter, AverageMeter
+from pytvision import graphic as gph
 from pytvision import netlearningrate
 from pytvision import utils as pytutils
 
@@ -60,8 +56,6 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             -view_freq (in epochs)
         """
 
-        self.project = patchproject
-        self.name    = nameproject
         super(SegmentationNeuralNet, self).__init__( patchproject, nameproject, no_cuda, parallel, seed, print_freq, gpu  )
         self.view_freq = view_freq
         self.half_precision = half_precision
@@ -79,11 +73,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         weight_decay=5e-4,      
         pretrained=False,
         size_input=388,
-        cascade_type='none',
-        writer=None,
-        segs_per_forward=0,
-        use_ori=1,
-        data_name=None
+        cascade_type='none'
         ):
         """
         Create
@@ -117,95 +107,43 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         self.size_input = size_input
         self.num_output_channels = num_output_channels
         self.cascade_type = cascade_type
-        self.segs_per_forward = segs_per_forward
-        self.use_ori = use_ori
-        self.src_c = 3 * self.use_ori
-        self.data_name = data_name
+        self.segs_per_forward = 7
         
         if self.cascade_type == 'none':
             self.step = self.default_step
         elif self.cascade_type == 'ransac':
             self.step = self.ransac_step
         elif self.cascade_type == 'ransac2':
-            self.step = self.ransac_step2
+            self.step = self.ransac_step2    
         elif self.cascade_type == 'simple':
             self.step = self.cascate_step
         else:
             raise "Cascada not found"
         
+        self.accuracy = nloss.Accuracy()
         if num_output_channels == 2:
             dice_dim = (1,)
         if num_output_channels == 4:
             dice_dim = (1,2,3)
         
-        self.writer = writer
-        self.norm_inv = utils.NormalizeInverse()
-                
+        self.dice = nloss.Dice(dice_dim)
+       
+        # Set the graphic visualization
+        self.logger_train = Logger( 'Train', ['loss'], ['accs', 'dices'], self.plotter  )
+        self.logger_val   = Logger( 'Val  ', ['loss'], ['accs', 'dices', 'PQ'], self.plotter )
+
+        self.visheatmap = gph.HeatMapVisdom(env_name=self.nameproject, heatsize=(256,256) )
+        self.visimshow = gph.ImageVisdom(env_name=self.nameproject, imsize=(256,256) )
         if self.half_precision:
             self.scaler = torch.cuda.amp.GradScaler()
-            
-        self.logger_path = f"{self.project}//{self.name}//metrics-{self.name}.log"
-        print(self.logger_path)
-            
-    def write_data(self, tag, metrics_mean, epoch):
-        
-        self.writer.add_scalar(f'Loss/{tag}',  metrics_mean['loss'], epoch)
-        
-        if tag == 'Val' or tag == 'Test':
-            self.writer.add_scalar(f'PQ/{tag}', metrics_mean['pq'], epoch)
-            self.writer.add_scalar(f'SQ/{tag}', metrics_mean['sq'], epoch)
-            self.writer.add_scalar(f'RQ/{tag}', metrics_mean['rq'], epoch)
-            
-            if not Path(self.logger_path).exists():
-                with open(self.logger_path, 'a') as f:
-                    f.write("epoch,tag,pq,sq,rq,loss")
-                    
-            with open(self.logger_path, 'a') as f:
-                f.write(f"{epoch}, {tag},{metrics_mean['pq']:0.3f}, {metrics_mean['sq']:0.3f},")
-                f.write(f"{metrics_mean['rq']:0.3f}, {metrics_mean['loss']:0.3f}\n")
-            
-        if tag == 'Test' and self.data_name:
-            general_log = f"{self.project}/../summary_test.log"
-            
-            if not Path(general_log).exists():
-                with open(general_log, 'a') as f:
-                    f.write("data_name,exp,pq,sq,rq,loss,time")
-                    
-            with open(general_log, 'a') as f:
-                f.write(f"{self.data_name},{self.name},{metrics_mean['pq']:0.3f}, {metrics_mean['sq']:0.3f},")
-                f.write(f"{metrics_mean['rq']:0.3f}, {metrics_mean['loss']:0.3f}, {str(datetime.now())}\n")
-                
-            
-    def get_mean_metrics(self, metrics_sum):
-        metrics_mean = {}
-        metrics_mean['loss'] = np.mean(metrics_sum['loss'])
-        metrics_mean['pq'] = metrics_sum['pq'] / metrics_sum['n_cells']
-        metrics_mean['sq'] = metrics_sum['sq'] / metrics_sum['n_cells']
-        metrics_mean['rq'] = metrics_sum['rq'] / metrics_sum['n_cells']
-        
-        return metrics_mean
 
-    def show_data(self, tag, inputs, targets, outputs, epoch):
-        grid   = torchvision.utils.make_grid(inputs[:,0])
-        grid   = self.norm_inv(grid.cpu().detach())
-        self.writer.add_image(f'{tag}/Inputs', grid, epoch)
-
-        grid   = torchvision.utils.make_grid(targets.argmax(1, keepdim=True))
-        self.writer.add_image(f'{tag}/Targets', grid, epoch)
-
-        grid   = torchvision.utils.make_grid(outputs.argmax(1, keepdim=True))
-        self.writer.add_image(f'{tag}/Map', grid, epoch)
-        prob = F.softmax(outputs.detach().cpu().float(), dim=1)
-        
-        for ch in range(prob.shape[1]):
-            fig = utils.get_fig_wcolor(prob[0,ch])
-            self.writer.add_figure(f'{tag}/Prob{ch}', fig, epoch)
             
-    def ransac_step(self, inputs, targets, tag=None, max_deep=3, verbose=False):
-        srcs = inputs[:, :self.src_c]
-        segs = inputs[:, self.src_c:]
+    def ransac_step(self, inputs, targets, max_deep=4, segs_per_forward=20, src_c=3, verbose=False):
+        srcs = inputs[:, :src_c]
+        segs = inputs[:, src_c:]
         lv_segs = segs#.clone()
         
+
         first = True
         final_loss = 0.0
         for lv in range(max_deep):
@@ -217,68 +155,46 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             step_segs = segs[:, actual_seg_ids]
             
             for idx in range(0, actual_c, self.segs_per_forward):
-                if self.use_ori:
-                    mini_inp = torch.cat((srcs, step_segs[:, idx:idx+self.segs_per_forward]), dim=1)
-                else:
-                    mini_inp = step_segs[:, idx:idx+self.segs_per_forward]
-                
+                mini_inp = torch.cat((srcs, step_segs[:, idx:idx+self.segs_per_forward]), dim=1)
                 mini_out = self.net(mini_inp)
                 ## calculate loss
                 final_loss += self.criterion(mini_out, targets) * 1
                 new_segs.append(mini_out.argmax(1, keepdim=True))
                 
+
                 if verbose: print(mini_inp.shape, idx, idx+self.segs_per_forward, actual_loss.item())
             
-            segs = torch.cat(new_segs, dim=1).float()
+            segs = torch.cat(new_segs, dim=1)
             
         return final_loss, mini_out
     
-    def ransac_step2(self, inputs, targets, tag=None, max_deep=3, verbose=False):
-        srcs = inputs[:, :self.src_c]
-        segs = inputs[:, self.src_c:]
-        lv_segs = segs#.clone()
+    def ransac_step2(self, inputs, targets, max_deep=4, n_times=10, segs_per_forward=20, src_c=3, verbose=False):
+        srcs = inputs[:, :src_c]
+        segs = inputs[:, src_c:]
         
         first = True
         final_loss = 0.0
-        for lv in range(max_deep):
+        for lv in range(n_times):
             n_segs = segs.shape[1]
-            new_segs = []
-            actual_c = self.segs_per_forward ** (max_deep - lv)
-            if verbose: print(segs.shape, actual_c)
-            actual_seg_ids = np.random.choice(range(n_segs), size=actual_c)
+            
+            
+            actual_seg_ids = np.random.choice(range(n_segs), size=self.segs_per_forward)
             step_segs = segs[:, actual_seg_ids]
             
-            for idx in range(0, actual_c, self.segs_per_forward):
-                if self.use_ori:
-                    mini_inp = torch.cat((srcs, step_segs[:, idx:idx+self.segs_per_forward]), dim=1)
-                else:
-                    mini_inp = step_segs[:, idx:idx+self.segs_per_forward]
-                
-                mini_out = self.net(mini_inp)
-                ## calculate loss
-                
-                final_loss = self.criterion(mini_out, targets) * 1
-
-                if lv != max_deep - 1 and tag=='Train':
-                    self.optimizer.zero_grad()
-                    (final_loss).backward() #batch_size
-                    self.optimizer.step()
-                elif lv != max_deep - 1:
-                    final_loss *= 10
-                
-                new_segs.append(mini_out.argmax(1, keepdim=True))
-                
-                if verbose: print(mini_inp.shape, idx, idx+self.segs_per_forward, actual_loss.item())
+            mini_inp = torch.cat((srcs, step_segs), dim=1)
+            mini_out = self.net(mini_inp)
+            ## calculate loss
+            final_loss += self.criterion(mini_out, targets) * 1
             
-            segs = torch.cat(new_segs, dim=1).float()
+            segs = torch.cat((segs, mini_out.argmax(1, keepdim=True)), dim=1)
             
         return final_loss, mini_out
 
 
-    def cascate_step(self, inputs, targets, tag=None, verbose=False):
+    def cascate_step(self, inputs, targets, segs_per_forward=20, src_c=3, verbose=False):
 
-        srcs = inputs[:, :self.src_c]
-        segs = inputs[:, self.src_c:]
+        srcs = inputs[:, :src_c]
+        segs = inputs[:, src_c:]
         lv_segs = segs.clone()
 
         final_loss = 0.0
@@ -294,12 +210,8 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             inputs_seg_ids = np.random.choice(range(inputs_seg.shape[1]), 
                                               size=self.segs_per_forward, replace=inputs_seg.shape[1]<self.segs_per_forward)
             inputs_seg = inputs_seg[:, inputs_seg_ids]
-            
-            if self.use_ori:
-                mini_inp = torch.cat((srcs, inputs_seg), dim=1)
-            else:
-                mini_inp = inputs_seg
-                                        
+
+            mini_inp = torch.cat((srcs, inputs_seg), dim=1)
             mini_out = self.net(mini_inp)
             ## calculate loss
             final_loss += self.criterion(mini_out, targets)
@@ -315,16 +227,20 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         return loss, outputs
 
       
-    def training(self, data_loader, epoch=0, tag='Train'):        
+    def training(self, data_loader, epoch=0):        
         #reset logger
-        metrics_sum = {'loss':[]}
-        
+        self.logger_train.reset()
+        data_time = AverageMeter()
+        batch_time = AverageMeter()
+
         # switch to evaluate mode
         self.net.train()
 
-        start = time.time()
+        end = time.time()
         for i, sample in enumerate(data_loader):
             
+            # measure data loading time
+            data_time.update(time.time() - end)
             # get data (image, label, weight)
             inputs, targets = sample['image'], sample['label']
             weights = None
@@ -343,7 +259,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             if self.half_precision:
                 with torch.cuda.amp.autocast():
                     
-                    loss, outputs = self.step(inputs, targets, tag)
+                    loss, outputs = self.step(inputs, targets)
                     
                     self.optimizer.zero_grad()            
                     self.scaler.scale(loss*batch_size).backward()  
@@ -357,30 +273,40 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 (batch_size*loss).backward() #batch_size
                 self.optimizer.step()
             
+            accs  = self.accuracy(outputs, targets)
+            dices = self.dice(outputs, targets)
             #pq    = metrics.pq_metric(outputs.cpu().detach().numpy(), targets.cpu().detach().numpy())
             #pq, n_cells  = metrics.pq_metric(targets, outputs)
-            metrics_sum['loss'].append(loss.item())
+
+            # update
+            self.logger_train.update(
+                {'loss': loss.item() },
+                {'accs': accs.item(), 
+                 #'PQ': pq,
+                 'dices': dices.item() },      
+                batch_size,          
+                )
 
             # measure elapsed time
-        mean_metrics = {'loss':np.mean(metrics_sum['loss'])}
-        self.write_data(tag, mean_metrics, epoch)
-        self.show_data(tag, inputs, targets, outputs, epoch)
-        end = time.time()
-        print(f"{tag:6} | {epoch:03d} | {mean_metrics['loss']:0.4f} | ------ | ", end='')
-        print(f"------ | ------ | ------ | { (end - start ):0.4f} |",flush=True)
-        
-    def evaluate(self, data_loader, epoch=0, tag='Val'):
-        
-        metrics_sum = {'pq':0, 'sq':0, 'rq':0, 'f1':0, 'loss':[] ,'n_cells':0}
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % self.print_freq == 0:  
+                self.logger_train.logger( epoch, epoch + float(i+1)/len(data_loader), i, len(data_loader), batch_time,   )
+
+
+    def evaluate(self, data_loader, epoch=0):
+        pq_sum      = 0
         total_cells = 0
-        
+        self.logger_val.reset()
+        batch_time = AverageMeter()
 
         # switch to evaluate mode
         self.net.eval()
         with torch.no_grad():
-            start = time.time()
-            
-            for i, sample in enumerate((data_loader)):
+            end = time.time()
+            for i, sample in enumerate(data_loader):
+                
                 # get data (image, label)
                 inputs, targets = sample['image'], sample['label']
                 
@@ -398,22 +324,26 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                     targets = targets.cuda()
                     if type(weights) is not type(None):
                         weights = weights.cuda()
-
+                #print(inputs.shape)
+                              
                 # fit (forward)
                 if self.half_precision:
                     with torch.cuda.amp.autocast():
-                        loss, outputs = self.step(inputs, targets, tag)   
+                        loss, outputs = self.step(inputs, targets)   
                 else:
-                    loss, outputs = self.step(inputs, targets, tag)
-                
+                    loss, outputs = self.step(inputs, targets)
+                       
+
                 # measure accuracy and record loss
-                metrics_sum['loss'].append(loss.item())
                 
+                
+                accs  = self.accuracy(outputs, targets )
+                dices = self.dice( outputs, targets )   
+                
+                #targets_np = targets[0][1].cpu().numpy().astype(int)
                 if epoch == 0:
-                    metrics_sum['pq'] = 0
-                    metrics_sum['sq'] = 0
-                    metrics_sum['rq'] = 0
-                    metrics_sum['n_cells'] = 1
+                    pq      = 0
+                    n_cells = 1
                 else:
                     #pq, n_cells    = metrics.pq_metric(targets, outputs)
                     if False:#self.skip_background:
@@ -423,29 +353,72 @@ class SegmentationNeuralNet(NeuralNetAbstract):
 
                     
                     all_metrics, n_cells, _ = metrics.get_metrics(targets,outputs)
+                    pq = all_metrics['pq']
                     
-                    metrics_sum['pq'] += all_metrics['pq'] * n_cells
-                    metrics_sum['sq'] += all_metrics['sq'] * n_cells
-                    metrics_sum['rq'] += all_metrics['rq'] * n_cells
-                    metrics_sum['n_cells'] += n_cells
+                pq_sum += pq * n_cells
+                total_cells += n_cells
                   
                 # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
+
+                # update
+                #print(loss.item(), accs, dices, batch_size)
+                self.logger_val.update( 
+                    {'loss': loss.item() },
+                    {'accs': accs.item(), 
+                     'PQ': (pq_sum/total_cells) if total_cells > 0 else 0,
+                     'dices': dices.item() },      
+                    batch_size,          
+                    )
+
+                if i % self.print_freq == 0:
+                    self.logger_val.logger(
+                        epoch, epoch, i,len(data_loader), 
+                        batch_time, 
+                        bplotter=False,
+                        bavg=True, 
+                        bsummary=False,
+                        )
                 
-   
         #save validation loss
-        mean_metrics = self.get_mean_metrics(metrics_sum)
-        self.write_data(tag,mean_metrics, epoch)
-        self.show_data(tag, inputs, targets, outputs, epoch)
-        
-        end = time.time()
-        if epoch % 10 == 0:
-            pass
-        print(f"Tag    | Epo |  Loss  |   PQ   |   SQ   |   RQ   |  Time  |")
-        print(f"{tag:6} | {epoch:03d} | {mean_metrics['loss']:0.4f} | ", end='')
-        print(f"{mean_metrics['pq']:0.4f} | {mean_metrics['sq']:0.4f} | {mean_metrics['rq']:0.4f} | { (end - start ):0.4f} |",flush=True)
+        if total_cells == 0:
+            pq_weight = 0
+        else:
+            pq_weight = pq_sum / total_cells
+
+        print(f"PQ: {pq_weight:0.4f}, {pq_sum:0.4f}, {total_cells}")
+
+        self.vallosses = self.logger_val.info['loss']['loss'].avg
+        acc = self.logger_val.info['metrics']['accs'].avg
+        #pq = pq_weight
         
 
-        return mean_metrics['pq']
+        self.logger_val.logger(
+            epoch, epoch, i, len(data_loader), 
+            batch_time,
+            bplotter=True,
+            bavg=True, 
+            bsummary=True,
+            )
+
+        #vizual_freq
+        if epoch % self.view_freq == 0:
+            
+            prob = F.softmax(outputs.cpu().float(), dim=1)
+            prob = prob.data[0]
+            maxprob = torch.argmax(prob, 0)
+            
+            self.visheatmap.show('Label', targets.data.cpu()[0].numpy()[1,:,:] )
+            #self.visheatmap.show('Weight map', weights.data.cpu()[0].numpy()[0,:,:])
+            self.visheatmap.show('Image', inputs.data.cpu()[0].numpy()[0,:,:])
+            self.visheatmap.show('Max prob',maxprob.cpu().numpy().astype(np.float32) )
+            for k in range(prob.shape[0]):                
+                self.visheatmap.show('Heat map {}'.format(k), prob.cpu()[k].numpy() )
+        
+
+        print(f"End Val: wPQ{pq_weight}")
+        return pq_weight
 
 
     def test(self, data_loader ):

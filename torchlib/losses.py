@@ -539,9 +539,10 @@ class MCELoss(nn.Module):
 
     def __init__(self):
         super(MCELoss, self).__init__()
-        self.bce = nn.CrossEntropyLoss(weight=torch.tensor([1, 14.6]).cuda())
+        self.bce = nn.CrossEntropyLoss()
+        ## check weight=torch.tensor([1, 14.6]).cuda()
         
-    def forward(self, y_pred, y_true, weight):
+    def forward(self, y_pred, y_true, weight=None):
         y_true_hot = y_true.argmax(1)
         loss = self.bce(y_pred, y_true_hot.long())  
         return loss.mean() * 10

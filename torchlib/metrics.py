@@ -166,7 +166,7 @@ th_post   = post_processing_func.TH_post()
 wts_post  = post_processing_func.WTS_post()
 pq_metric = PQ()
 
-def get_metrics(gt, outputs, post_label='map', remove_small=True):
+def get_metrics(gt, outputs, post_label='map', remove_small=True, use_close=False):
     #gt = gt[0].cpu().numpy()
     
     if type(outputs) == np.ndarray:
