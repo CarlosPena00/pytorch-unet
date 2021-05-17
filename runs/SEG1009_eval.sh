@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # parameters
-DATA=/home/chcp/Documents/Dataset
+DATA=/home/chcp/Datasets
 #NAMEDATASET='U2OS_1_0_1'
 NAMEDATASET='Seg1009_0.3.1'
 #NAMEDATASET='Kaggle2018_1_0_0'
@@ -39,9 +39,13 @@ IMAGESIZE=1010 #256 #64
 IMAGEPAD=0
 NUMCHANNELS=3
 NUMCLASSES=2
+NUMSEGS=60
+LOAD_SEGS=1
+CASCADE='ransac'
+USE_ORI=1
 
-EXP_NAME='baseline_1009_'$ARCH'_'$LOSS'_'$WMAP'_'$OPT'_'$NAMEDATASET'_'$POST_METHOD'_0009'
-
+EXP_NAME='Segments_1009_60_unetpad_jreg__adam_Seg1009_0.3.2_map_ransac_0000_7'
+NAMEDATASET='Seg33_1.0.3'
 # rm -rf $PROJECT/$EXP_NAME/$EXP_NAME.log
 # rm -rf $PROJECT/$EXP_NAME/
 # mkdir $PROJECT
@@ -76,6 +80,10 @@ $DATA/$NAMEDATASET \
 --post-method=$POST_METHOD \
 --weight=$WMAP \
 --pad=$IMAGEPAD \
+--numsegs=$NUMSEGS \
+--cascade=$CASCADE \
+--load-segments=$LOAD_SEGS \
+--use-ori=$USE_ORI \
 --finetuning \
 2>&1 | tee -a $PROJECT/$EXP_NAME/$EXP_NAME.log \
 

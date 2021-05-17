@@ -111,21 +111,21 @@ def arg_parser():
                         help='weight, | SAW | DWM | ')
     parser.add_argument('--pad', default=0, type=int,
                         help='pad px')
-    parser.add_argument('--load-segments', default=False,
-                        help='load segments')
-    parser.add_argument('--count-segs', type=int, default=5,
-                        help='count of segs')
     parser.add_argument('--load-extra', type=bool, default=False,
                         help='load extra')
     parser.add_argument('--cascade', type=str, default='none',
                         help='load extra')
-    parser.add_argument('--numsegs', type=int, default='none',
-                        help='number of segs')
+    parser.add_argument('--load-segs', type=int, default=1,
+                        help='load segments')
+    parser.add_argument('--segs-per-forward', type=int, default=-1,
+                        help='count of segs')
     parser.add_argument('--use-ori', type=int, default=1,
                         help='Use Original image')
+    parser.add_argument('--just-eval', type=int, default=0,
+                        help='If just eval')
+    
     
     return parser
-
 
 
 def main():
@@ -142,12 +142,13 @@ def main():
     count_test   = args.count_test #5000
     post_method  = args.post_method
     weight       = args.weight
-    numsegs      = int(args.numsegs)
     pad          = int(args.pad)
-    count_segs   = int(args.count_segs)
-    load_segs    = bool(args.load_segments)
     use_ori      = int(args.use_ori)
     use_weights  = weight!=''
+    segs_per_forward = int(args.segs_per_forward)
+    load_segs    = bool(args.load_segs)
+    just_eval    = int(args.just_eval)
+    
     
     folders_contours ='touchs'
         
@@ -156,9 +157,9 @@ def main():
     [ print('\t* {}: {}'.format(k,v) ) for k,v in vars(args).items() ]
     print('')
     
-    num_input_channels = (num_channels * use_ori) + (numsegs * load_segs)
+    num_input_channels = (num_channels * use_ori) + (load_segs * segs_per_forward)
     writer = SummaryWriter('logs/'+args.name)
-
+    
     network = SegmentationNeuralNet(
         patchproject=args.project,
         nameproject=args.name,
@@ -181,7 +182,10 @@ def main():
         pretrained=args.finetuning,
         size_input=imsize,
         cascade_type=args.cascade,
-        writer=writer
+        writer=writer,
+        segs_per_forward=segs_per_forward,
+        use_ori=use_ori,
+        data_name=args.data
         )
     
     cudnn.benchmark = False #due to augmentation
@@ -189,34 +193,78 @@ def main():
     # resume model
     if args.resume:
         network.resume( os.path.join(network.pathmodels, args.resume ) )
+        
+    if not just_eval:
 
-    # datasets
-    # training dataset
-    print("Warring! training with shuffle false")
-    train_data = dsxbdata.ISBIDataset(
+        # datasets
+        # training dataset
+        print("Warring! training with shuffle false")
+        train_data = dsxbdata.ISBIDataset(
+            args.data, 
+            'train', 
+            folders_labels=f'labels{num_classes}c',
+            count=count_train,
+            num_classes=num_classes,
+            num_channels=num_channels,
+            transform=get_transforms_geom_color(pad=pad),
+            use_weight=use_weights,
+            weight_name=weight,
+            load_segments=load_segs,
+            shuffle_segments=True,
+            use_ori=use_ori
+        )
+
+        train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
+            num_workers=args.workers, pin_memory=False, drop_last=True )
+
+        val_data = dsxbdata.ISBIDataset(
+            args.data, 
+            "val", 
+            folders_labels=f'labels{num_classes}c',
+            count=count_test,
+            num_classes=num_classes,
+            num_channels=num_channels,
+            transform=get_simple_transforms(pad=pad),
+            use_weight=use_weights,
+            weight_name=weight,
+            load_segments=load_segs,
+            shuffle_segments=True,
+            use_ori=use_ori
+        )
+
+        val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
+            num_workers=args.workers, pin_memory=False, drop_last=False)
+        print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
+        print("*"*60, len(train_loader), len(val_loader), '*'*61)
+
+
+
+        # print neural net class
+        print('SEG-Torch: {}'.format(datetime.datetime.now()) )
+        #print(network)
+
+        # training neural net
+        def count_parameters(model):
+
+            return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
+
+        print('N Param: ', count_parameters(network))
+
+        network.fit( train_loader, val_loader, args.epochs, args.snapshot )
+
+        print("Optimization Finished!")
+        print("DONE!!!")
+
+        del val_data
+        del train_data
+
+    np.random.seed(0)
+
+    test_data = dsxbdata.ISBIDataset(
         args.data, 
-        'train', 
+        "test", 
         folders_labels=f'labels{num_classes}c',
-        count=count_train,
-        num_classes=num_classes,
-        num_channels=num_channels,
-        transform=get_transforms_geom_color(pad=pad),
-        use_weight=use_weights,
-        weight_name=weight,
-        load_segments=load_segs,
-        shuffle_segments=True,
-        count_segments=count_segs,
-        use_ori=use_ori
-    )
-    
-    train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 
-        num_workers=args.workers, pin_memory=False, drop_last=True )
-    
-    val_data = dsxbdata.ISBIDataset(
-        args.data, 
-        "val", 
-        folders_labels=f'labels{num_classes}c',
-        count=count_test,
+        count=254,
         num_classes=num_classes,
         num_channels=num_channels,
         transform=get_simple_transforms(pad=pad),
@@ -224,32 +272,14 @@ def main():
         weight_name=weight,
         load_segments=load_segs,
         shuffle_segments=True,
-        count_segments=count_segs,
         use_ori=use_ori
     )
         
-    val_loader = DataLoader(val_data, batch_size=args.batch_size_test, shuffle=False, 
-        num_workers=args.workers, pin_memory=False, drop_last=False)
-    print("*"*60, args.batch_size_train, args.batch_size_test, '*'*61)
-    print("*"*60, len(train_loader), len(val_loader), '*'*61)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size_test, shuffle=False, 
+        num_workers=args.workers, pin_memory=network.cuda, drop_last=False)
     
-
-        
-    # print neural net class
-    print('SEG-Torch: {}'.format(datetime.datetime.now()) )
-    #print(network)
-    
-    # training neural net
-    def count_parameters(model):
-
-        return sum(p.numel() for p in model.net.parameters() if p.requires_grad)
-
-    print('N Param: ', count_parameters(network))
-
-    network.fit( train_loader, val_loader, args.epochs, args.snapshot )
+    network.evaluate( test_loader, -2, tag='Test')
                    
-    print("Optimization Finished!")
-    print("DONE!!!")
 
 
 
