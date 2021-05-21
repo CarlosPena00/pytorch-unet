@@ -123,8 +123,8 @@ def arg_parser():
                         help='Use Original image')
     parser.add_argument('--just-eval', type=int, default=0,
                         help='If just eval')
-    
-    
+    parser.add_argument('--use-bagging', type=int, default=0,
+                        help='If just eval')
     return parser
 
 
@@ -148,6 +148,7 @@ def main():
     segs_per_forward = int(args.segs_per_forward)
     load_segs    = bool(args.load_segs)
     just_eval    = int(args.just_eval)
+    use_bagging  = int(args.use_bagging)
     
     
     folders_contours ='touchs'
@@ -211,7 +212,8 @@ def main():
             weight_name=weight,
             load_segments=load_segs,
             shuffle_segments=True,
-            use_ori=use_ori
+            use_ori=use_ori,
+            use_bagging=use_bagging
         )
 
         train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 

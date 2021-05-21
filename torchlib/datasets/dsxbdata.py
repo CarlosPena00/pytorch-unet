@@ -526,7 +526,8 @@ class ISBIDataset(Dataset):
         weight_name='SAW',
         load_segments=False,
         shuffle_segments=False,
-        use_ori=True
+        use_ori=True,
+        use_bagging=False,
         ):
 
         self.data = ISBIProvide(
@@ -539,10 +540,10 @@ class ISBIDataset(Dataset):
                 ext,
                 use_weight,
                 weight_name,
-                load_segments                
+                load_segments,
+                use_bagging
                 )
-
-
+        
         self.transform        = transform  
         self.count            = count  
         self.num_channels     = num_channels
@@ -552,7 +553,11 @@ class ISBIDataset(Dataset):
         self.shuffle_segments = shuffle_segments
         #self.count_segments   = count_segments
         self.use_ori          = use_ori
+        self.use_bagging      = use_bagging
         assert not (self.use_weight and self.load_segments)
+        
+
+            
 
     def __len__(self):
         if self.count is None:

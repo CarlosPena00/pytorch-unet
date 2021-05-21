@@ -589,6 +589,7 @@ class ISBIProvide(dataProvide):
         use_weight=False,
         weight_name='SAW',
         load_segments=False,
+        use_bagging=False
         ):
         super(ISBIProvide, self).__init__( );        
         base_folder         = os.path.expanduser( base_folder )
@@ -598,6 +599,7 @@ class ISBIProvide(dataProvide):
         self.subpath        = sub_folder
         self.folders_images = folders_images
         self.folders_labels = folders_labels
+        self.use_bagging    = use_bagging
         
         self.pathimages   = os.path.join( base_folder, sub_folder, folders_images   )
         self.pathlabels   = os.path.join( base_folder, sub_folder, folders_labels   )
@@ -639,6 +641,13 @@ class ISBIProvide(dataProvide):
                 )
                 for f in sorted(os.listdir(self.pathlabels)) if f.split('.')[-1] == ext             
                 ];
+            
+        self.data = np.array(self.data)
+        if self.use_bagging:
+            N = len(self.data)
+            idxs = np.random.choice(range(N), N)
+            self.data = self.data[idxs]
+            
 
     def getid(self): return self.data[self.index][0]
 
