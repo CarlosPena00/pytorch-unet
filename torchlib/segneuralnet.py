@@ -309,7 +309,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             n_segs = lv_segs.shape[1]
         return final_loss, mini_out
     
-    def default_step(self, inputs, targets):
+    def default_step(self, inputs, targets, tag=None, verbose=False):
         outputs = self.net(inputs)            
         loss    = self.criterion(outputs, targets)
         return loss, outputs
