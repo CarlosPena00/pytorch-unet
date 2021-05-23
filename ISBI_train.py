@@ -125,6 +125,7 @@ def arg_parser():
                         help='If just eval')
     parser.add_argument('--use-bagging', type=int, default=0,
                         help='If just eval')
+    parser.add_argument('--bagging-seed', type=int, default=2021)
     return parser
 
 
@@ -149,6 +150,7 @@ def main():
     load_segs    = bool(args.load_segs)
     just_eval    = int(args.just_eval)
     use_bagging  = int(args.use_bagging)
+    bagging_seed = int(args.bagging_seed)
     
     
     folders_contours ='touchs'
@@ -213,7 +215,8 @@ def main():
             load_segments=load_segs,
             shuffle_segments=True,
             use_ori=use_ori,
-            use_bagging=use_bagging
+            use_bagging=use_bagging,
+            bagging_seed=bagging_seed
         )
 
         train_loader = DataLoader(train_data, batch_size=args.batch_size_train, shuffle=True, 

@@ -528,6 +528,7 @@ class ISBIDataset(Dataset):
         shuffle_segments=False,
         use_ori=True,
         use_bagging=False,
+        bagging_seed=2021    
         ):
 
         self.data = ISBIProvide(
@@ -541,7 +542,8 @@ class ISBIDataset(Dataset):
                 use_weight,
                 weight_name,
                 load_segments,
-                use_bagging
+                use_bagging,
+                bagging_seed
                 )
         
         self.transform        = transform  

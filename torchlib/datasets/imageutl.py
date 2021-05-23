@@ -16,6 +16,7 @@ from pytvision.datasets.imageutl import dataProvide
 
 from . import utility as utl
 
+DEFAULT_SEED=2021
 trainfile='stage1_train'
 testfile='stage1_test'
 testfilefinal='stage2_test_final'
@@ -589,7 +590,8 @@ class ISBIProvide(dataProvide):
         use_weight=False,
         weight_name='SAW',
         load_segments=False,
-        use_bagging=False
+        use_bagging=False,
+        bagging_seed=DEFAULT_SEED
         ):
         super(ISBIProvide, self).__init__( );        
         base_folder         = os.path.expanduser( base_folder )
@@ -600,6 +602,7 @@ class ISBIProvide(dataProvide):
         self.folders_images = folders_images
         self.folders_labels = folders_labels
         self.use_bagging    = use_bagging
+        self.bagging_seed   = bagging_seed
         
         self.pathimages   = os.path.join( base_folder, sub_folder, folders_images   )
         self.pathlabels   = os.path.join( base_folder, sub_folder, folders_labels   )
@@ -643,11 +646,14 @@ class ISBIProvide(dataProvide):
                 ];
             
         self.data = np.array(self.data)
+
         if self.use_bagging:
+            print(self.bagging_seed, DEFAULT_SEED)
+            np.random.seed(self.bagging_seed)
             N = len(self.data)
             idxs = np.random.choice(range(N), N)
             self.data = self.data[idxs]
-            
+        np.random.seed(DEFAULT_SEED)
 
     def getid(self): return self.data[self.index][0]
 
