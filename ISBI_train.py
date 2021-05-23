@@ -99,10 +99,6 @@ def arg_parser():
                         help='optimize function')
     parser.add_argument('--scheduler', default='fixed', type=str,
                         help='scheduler function for learning rate')
-    parser.add_argument('--image-crop', default=512, type=int, metavar='N',
-                        help='image crop')
-    parser.add_argument('--image-size', default=256, type=int, metavar='N',
-                        help='image size')
     parser.add_argument('--parallel', action='store_true', default=False,
                         help='Parallel')    
     parser.add_argument('--post-method', default='map', type=str,
@@ -135,8 +131,6 @@ def main():
     parser       = arg_parser()
     args         = parser.parse_args()
     parallel     = args.parallel
-    imcrop       = args.image_crop
-    imsize       = args.image_size
     num_classes  = args.num_classes
     num_channels = args.num_channels    
     count_train  = args.count_train #10000
@@ -183,7 +177,6 @@ def main():
         optimizer=args.opt,
         lrsch=args.scheduler,
         pretrained=args.finetuning,
-        size_input=imsize,
         cascade_type=args.cascade,
         writer=writer,
         segs_per_forward=segs_per_forward,
