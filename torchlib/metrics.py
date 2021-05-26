@@ -166,7 +166,8 @@ th_post   = post_processing_func.TH_post()
 wts_post  = post_processing_func.WTS_post()
 pq_metric = PQ()
 
-def get_metrics(gt, outputs, post_label='map', remove_small=True, use_close=False):
+def get_metrics(gt, outputs, post_label='map', 
+                morph=2, morph_label=2):
     #gt = gt[0].cpu().numpy()
     
     if type(outputs) == np.ndarray:
@@ -177,14 +178,14 @@ def get_metrics(gt, outputs, post_label='map', remove_small=True, use_close=Fals
         out_np = outputs[0].cpu().detach().numpy().transpose(1,2,0)
          
     if type(gt) == np.ndarray:
-        gt_, *_ = map_post(gt, 3)
+        gt_, *_ = map_post(gt, morph=morph_label)
     else:
         if gt.shape[0] != 1:
             print("Warring! this function just accept batch size of one")        
         gt      = gt[0].cpu().detach().numpy().astype(int).transpose(1,2,0)  
         if gt.shape[2] == 2:
             gt      = np.concatenate((np.zeros(gt.shape[:2] + (1,)), gt), axis=2)
-        gt_, *_ = map_post(gt, 3)
+        gt_, *_ = map_post(gt, morph=morph_label)
     
     
     if out_np.shape[2] == 2: #Cells and Touch only:
@@ -193,7 +194,7 @@ def get_metrics(gt, outputs, post_label='map', remove_small=True, use_close=Fals
     
     if post_label == 'map' or post_label == 'all':
         #Note: Default behavior, this just shoud allow in training mode for speed purpose 
-        predictionlb, prediction, region, output = map_post(out_np, 3)
+        predictionlb, prediction, region, output = map_post(out_np, morph=morph)
     elif post_label == 'th':
         predictionlb, prediction, region, output = th_post(out_np, thresh=0.5)
     elif post_label == 'wts':
