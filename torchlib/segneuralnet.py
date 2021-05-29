@@ -65,8 +65,6 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         super(SegmentationNeuralNet, self).__init__( patchproject, nameproject, no_cuda, parallel, seed, print_freq, gpu  )
         self.view_freq = view_freq
         self.half_precision = half_precision
-
- 
     def create(self, 
         arch, 
         num_output_channels, 
@@ -201,7 +199,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             fig = utils.get_fig_wcolor(prob[0,ch])
             self.writer.add_figure(f'{tag}/Prob{ch}', fig, epoch)
             
-    def ransac_step(self, inputs, targets, tag=None, max_deep=3, verbose=False):
+    def ransac_step(self, inputs, targets, weights=None, tag=None, max_deep=3, verbose=False):
         srcs = inputs[:, :self.src_c]
         segs = inputs[:, self.src_c:]
         lv_segs = segs#.clone()
@@ -224,7 +222,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 
                 mini_out = self.net(mini_inp)
                 ## calculate loss
-                final_loss += self.criterion(mini_out, targets) * 1
+                final_loss += self.criterion(mini_out, targets, weights) * 1
                 new_segs.append(mini_out.argmax(1, keepdim=True))
                 
                 if verbose: print(mini_inp.shape, idx, idx+self.segs_per_forward, actual_loss.item())
@@ -233,7 +231,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             
         return final_loss, mini_out
     
-    def ransac_step2(self, inputs, targets, tag=None, max_deep=3, verbose=False):
+    def ransac_step2(self, inputs, targets, weights=None, tag=None, max_deep=3, verbose=False):
         srcs = inputs[:, :self.src_c]
         segs = inputs[:, self.src_c:]
         lv_segs = segs#.clone()
@@ -257,7 +255,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 mini_out = self.net(mini_inp)
                 ## calculate loss
                 
-                final_loss = self.criterion(mini_out, targets) * 1
+                final_loss = self.criterion(mini_out, targets, weights) * 1
 
                 if lv != max_deep - 1 and tag=='Train':
                     self.optimizer.zero_grad()
@@ -275,7 +273,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
         return final_loss, mini_out
 
 
-    def cascate_step(self, inputs, targets, tag=None, verbose=False):
+    def cascate_step(self, inputs, targets, weights=None, tag=None, verbose=False):
 
         srcs = inputs[:, :self.src_c]
         segs = inputs[:, self.src_c:]
@@ -302,16 +300,16 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                                         
             mini_out = self.net(mini_inp)
             ## calculate loss
-            final_loss += self.criterion(mini_out, targets)
+            final_loss += self.criterion(mini_out, targets, weights)
 
             if verbose: print(mini_inp.shape, self.segs_per_forward, actual_loss.item())
             lv_segs = torch.cat((lv_segs[:, self.segs_per_forward:], mini_out.argmax(1, keepdim=True)), dim=1)
             n_segs = lv_segs.shape[1]
         return final_loss, mini_out
     
-    def default_step(self, inputs, targets, tag=None, verbose=False):
+    def default_step(self, inputs, targets, weights=None, tag=None, verbose=False):
         outputs = self.net(inputs)            
-        loss    = self.criterion(outputs, targets)
+        loss    = self.criterion(outputs, targets, weights)
         return loss, outputs
 
       
@@ -343,7 +341,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
             if self.half_precision:
                 with torch.cuda.amp.autocast():
                     
-                    loss, outputs = self.step(inputs, targets, tag)
+                    loss, outputs = self.step(inputs, targets, weights, tag)
                     
                     self.optimizer.zero_grad()            
                     self.scaler.scale(loss*batch_size).backward()  
@@ -351,7 +349,7 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                     self.scaler.update()
 
             else:
-                loss, outputs = self.step(inputs, targets)
+                loss, outputs = self.step(inputs, targets, weights)
                     
                 self.optimizer.zero_grad()
                 (batch_size*loss).backward() #batch_size
@@ -402,9 +400,10 @@ class SegmentationNeuralNet(NeuralNetAbstract):
                 # fit (forward)
                 if self.half_precision:
                     with torch.cuda.amp.autocast():
-                        loss, outputs = self.step(inputs, targets, tag)   
+                        loss, outputs = self.step(inputs, targets, weights, tag)   
+                        
                 else:
-                    loss, outputs = self.step(inputs, targets, tag)
+                    loss, outputs = self.step(inputs, targets, weights, tag)
                 
                 # measure accuracy and record loss
                 metrics_sum['loss'].append(loss.item())
