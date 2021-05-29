@@ -167,7 +167,9 @@ wts_post  = post_processing_func.WTS_post()
 pq_metric = PQ()
 
 def get_metrics(gt, outputs, post_label='map', 
-                morph=2, morph_label=2):
+                morph=2, morph_label=2,
+                th_thresh=0.5,
+                thresh_background=0.45,thresh_foreground=0.20):
     #gt = gt[0].cpu().numpy()
     
     if type(outputs) == np.ndarray:
@@ -196,9 +198,9 @@ def get_metrics(gt, outputs, post_label='map',
         #Note: Default behavior, this just shoud allow in training mode for speed purpose 
         predictionlb, prediction, region, output = map_post(out_np, morph=morph)
     elif post_label == 'th':
-        predictionlb, prediction, region, output = th_post(out_np, thresh=0.5)
+        predictionlb, prediction, region, output = th_post(out_np, thresh=th_thresh)
     elif post_label == 'wts':
-        predictionlb, prediction, region, output = wts_post(out_np)
+        predictionlb, prediction, region, output = wts_post(out_np, thresh_background=thresh_background,thresh_foreground=thresh_foreground)
     else:
         assert False, f"Get Metrics Fidel Error {post_label} -- expected map || th || wts -- Got: |{post_label}|"
 
